@@ -23,7 +23,7 @@ class NexStar:
         self.serial.write(command)
         response = self.serial.read(18)
         return (self._precise_to_degrees(response[:8]),
-                self._precise_to_degrees(response[9:16]))
+                self._precise_to_degrees(response[9:17]))
 
     def get_azel(self):
         return self._get_position('z')
