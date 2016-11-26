@@ -3,6 +3,8 @@
 import serial
 import io
 
+# Reference for NexStar commands: 
+# http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 class NexStar:
     
     def __init__(self, device):
@@ -10,8 +12,16 @@ class NexStar:
         self.DIR_AZIMUTH = 0
         self.DIR_ELEVATION = 1
 
-    def _validate_command(self, response):
-        assert response == '#', 'Command failed'
+    # Send a command to the hand controller and get a response. The command
+    # argument gives the ASCII command to send. The response_len is an integer
+    # giving the number of characters expected in the response, excluding the
+    # the terminating '#' character. The response received from the hand 
+    # controller is validated and returned, excluding the termination character.
+    def _send_command(self, command, response_len = 0):
+        self.serial.write(command)
+        response = self.serial.read(response_len + 1)
+        assert response[-1] == '#', 'Command failed'
+        return response[0:-1]
 
     def _precise_to_degrees(self, string):
         return int(string, 16) / 2.**32 * 360.
@@ -19,9 +29,10 @@ class NexStar:
     def _degrees_to_precise(self, degrees):
         return '%08X' % round(degrees / 360. * 2.**32)
 
+    # expects the precise version of the get position commands
     def _get_position(self, command):
-        self.serial.write(command)
-        response = self.serial.read(18)
+        assert command in ['e', 'z']
+        response = self._send_command(command, 17)
         return (self._precise_to_degrees(response[:8]),
                 self._precise_to_degrees(response[9:17]))
 
@@ -34,9 +45,7 @@ class NexStar:
     def _goto_command(self, char, values):
         command = (char + self._degrees_to_precise(values[0]) + ',' 
                    + self._degrees_to_precise(values[1]))
-        self.serial.write(command)
-        response = self.serial.read(1)
-        self._validate_command(response)
+        self._send_command(command)
         
     def goto_azel(self, az, el):
         self._goto_command('b', (az, el))
@@ -48,15 +57,12 @@ class NexStar:
         self._goto_command('s', (ra, dec))
 
     def get_tracking_mode(self):
-        self.serial.write('t')
-        response = self.serial.read(2)
+        response = self._send_command('t', 1)
         return ord(response[0])
 
     def set_tracking_mode(self, mode):
         command = 'T' + chr(mode)
-        self.serial.write(command)
-        response = self.serial.read(1)
-        self._validate_command(response)
+        self._send_command(command)
 
     def _var_slew_command(self, direction, rate):
         negative_rate = True if rate < 0 else False
@@ -67,9 +73,7 @@ class NexStar:
         command = ('P' + chr(3) + direction_char + sign_char 
                   + chr(track_rate_high) + chr(track_rate_low) + chr(0) 
                   + chr(0))
-        self.serial.write(command)
-        response = self.serial.read(1)
-        self._validate_command(response)
+        self._send_command(command)
 
     def slew_var(self, az_rate, el_rate):
        self._var_slew_command(self.DIR_AZIMUTH, az_rate)
@@ -82,24 +86,21 @@ class NexStar:
         rate_char = chr(int(abs(rate)))
         command = ('P' + chr(2) + direction_char + sign_char + rate_char
                    + chr(0) + chr(0) + chr(0))
-        self.serial.write(command)
-        response = self.serial.read(1)
-        self._validate_command(response)
+        self._send_command(command)
 
     def slew_fixed(self, az_rate, el_rate):
         assert (az_rate >= -9) and (az_rate <= 9), 'az_rate out of range'
-        assert (el_rate >= -9) and (el_rate <= 9), 'az_rate out of range'
+        assert (el_rate >= -9) and (el_rate <= 9), 'el_rate out of range'
         self._fixed_slew_command(self.DIR_AZIMUTH, az_rate)
         self._fixed_slew_command(self.DIR_ELEVATION, el_rate)
 
     def get_location(self):
-        self.serial.write('w')
-        response = self.serial.read(9)
+        response = self._send_command('w', 8)
         lat = ()
         for char in response[:4]:
             lat = lat + (ord(char),)
         long = ()
-        for char in response[4:-1]:
+        for char in response[4:]:
             long = long + (ord(char),)
         ns_char = 'N' if lat[3] == 0 else 'S'
         ew_char = 'E' if long[3] == 0 else 'W'
@@ -115,15 +116,12 @@ class NexStar:
             command = command + chr(p)
         for p in long:
             command = command + chr(p)
-        self.serial.write(command)
-        response = self.serial.read(1)
-        self._validate_command(response)
+        self._send_command(command)
 
     def get_time(self):
-        self.serial.write('h')
-        response = self.serial.read(9)
+        response = self._send_command('h', 8)
         time = ()
-        for char in response[:-1]:
+        for char in response:
             time = time + (ord(char),)
         return time
 
@@ -131,37 +129,29 @@ class NexStar:
         command = 'H'
         for p in time:
             command = command + str(p)
-        self.serial.write(command)
-        response = self.serial.read(1)
-        self._validate_command(response)
+        self._send_command(command)
 
     def get_version(self):
-        self.serial.write('V')
-        response = self.serial.read(3)
+        response = self._send_command('V', 2)
         return ord(response[0]) + ord(response[1]) / 10.0
 
     def get_model(self):
-        self.serial.write('m')
-        response = self.serial.read(2)
-        return ord(response[0])
+        response = self._send_command('m', 1)
+        return ord(response)
 
     def echo(self, x):
         command = 'K' + chr(x)
-        self.serial.write(command)
-        response = self.serial.read(2)
-        return ord(response[0])
+        response = self._send_command(command, 1)
+        return ord(response)
 
     def alignment_complete(self):
-        self.serial.write('J')
-        response = self.serial.read(2)
-        return True if ord(response[0]) == 1 else False
+        response = self._send_command('J', 1)
+        return True if ord(response) == 1 else False
 
     def goto_in_progress(self):
-        self.serial.write('L')
-        response = self.serial.read(2)
-        return True if int(response[0]) == 1 else False
+        response = self._send_command('L', 1)
+        return True if int(response) == 1 else False
 
     def cancel_goto(self):
-        self.serial.write('M')
-        response = self.serial.read(1)
-        self._validate_command(response)
+        self._send_command('M')
+
