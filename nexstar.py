@@ -12,6 +12,8 @@ class NexStar:
     
     def __init__(self, device):
         self.serial = serial.Serial(device, baudrate=9600, timeout=1)
+        garbage_bytes = self.serial.inWaiting()
+        self.serial.read(garbage_bytes)
         self.DIR_AZIMUTH = 0
         self.DIR_ELEVATION = 1
 
@@ -182,7 +184,7 @@ class NexStar:
     # currently supported.
     def get_time(self):
         response = self._send_command('h', 8)
-	t = datetime.datetime(
+        t = datetime.datetime(
             2000 + ord(response[5]), # year
             ord(response[3]),        # month
             ord(response[4]),        # day
