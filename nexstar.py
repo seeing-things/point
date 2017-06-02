@@ -45,8 +45,12 @@ class NexStar:
                 self._precise_to_degrees(response[9:17]))
 
     # Returns a tuple with current (azimuth, elevation) in degrees
+    # Azimuth range is [0,360) and elevation range is [-180,180)
     def get_azel(self):
-        return self._get_position('z')
+        (az, el) = self._get_position('z')
+        # adjust range of elevation from [0,360) to [-180,180)
+        el = (el + 180.0) % 360.0 - 180.0
+        return (az, el)
         
     # Returns a tuple with current (right ascension, declination) in degrees
     def get_radec(self):
