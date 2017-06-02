@@ -10,6 +10,8 @@ import time
 # http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 class NexStar:
     
+    # The constructor argument is a string giving the serial device connected to the 
+    # NexStar hand controller. For example, '/dev/ttyUSB0'.
     def __init__(self, device):
         self.serial = serial.Serial(device, baudrate=9600, timeout=1)
         garbage_bytes = self.serial.inWaiting()
@@ -29,7 +31,8 @@ class NexStar:
         return response[0:-1]
 
     # Helper function to convert precise angular values in command responses
-    # to degrees. See NexStar command reference for details.
+    # to degrees. See NexStar command reference for details. Return value
+    # will be in range [0,360).
     def _precise_to_degrees(self, string):
         return int(string, 16) / 2.**32 * 360.
 
