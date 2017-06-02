@@ -33,8 +33,11 @@ class NexStar:
     def _precise_to_degrees(self, string):
         return int(string, 16) / 2.**32 * 360.
 
+    # Helper function to convert degrees to precise angular values for commands.
+    # There are no restrictions on the range of the input. Both positive and
+    # negative angles are supported.
     def _degrees_to_precise(self, degrees):
-        return '%08X' % round(degrees / 360. * 2.**32)
+        return '%08X' % round((degrees % 360.) / 360. * 2.**32)
 
     # Generic get position helper function. Expects the precise version of 
     # these commands.
