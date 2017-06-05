@@ -17,6 +17,11 @@ class NexStar:
         self.DIR_AZIMUTH = 0
         self.DIR_ELEVATION = 1
 
+    # stop any active slewing on destruct
+    def __del__(self):
+        self.cancel_goto()
+        self.slew_fixed(0, 0)
+
     # Send a command to the hand controller and get a response. The command
     # argument gives the ASCII command to send. The response_len is an integer
     # giving the number of characters expected in the response, excluding the
