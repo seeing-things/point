@@ -115,9 +115,9 @@ class NexStar:
         negative_rate = True if rate < 0 else False
         track_rate_high = (int(abs(rate)) * 4) / 256
         track_rate_low = (int(abs(rate)) * 4) % 256
-        direction_char = chr(16) if direction == 'az' else chr(17)
+        axis_char = chr(16) if axis == 'az' else chr(17)
         sign_char = chr(7) if negative_rate == True else chr(6)
-        command = ('P' + chr(3) + direction_char + sign_char 
+        command = ('P' + chr(3) + axis_char + sign_char 
                   + chr(track_rate_high) + chr(track_rate_low) + chr(0) 
                   + chr(0))
         self._send_command(command)
@@ -126,14 +126,14 @@ class NexStar:
     # rates supported on the hand controller are available. The axis argument
     # may be set to 'az' or 'alt'. Rate is an integer from -9 to +9, 
     # where 0 is stop and +/-9 is the maximum slew rate.
-    def slew_fixed(self, direction, rate):
-        assert direction in ['az', 'alt']
+    def slew_fixed(self, axis, rate):
+        assert axis in ['az', 'alt']
         assert (rate >= -9) and (rate <= 9), 'fixed slew rate out of range'
         negative_rate = True if rate < 0 else False
         sign_char = chr(37) if negative_rate == True else chr(36)
-        direction_char = chr(16) if direction == 'az' else chr(17)
+        axis_char = chr(16) if axis == 'az' else chr(17)
         rate_char = chr(int(abs(rate)))
-        command = ('P' + chr(2) + direction_char + sign_char + rate_char
+        command = ('P' + chr(2) + axis_char + sign_char + rate_char
                    + chr(0) + chr(0) + chr(0))
         self._send_command(command)
 
