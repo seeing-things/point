@@ -8,14 +8,16 @@ import time
 # http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 class NexStar:
     
+    # constants used to identify a slew axis
+    DIR_AZIMUTH = 0
+    DIR_ELEVATION = 1
+
     # The constructor argument is a string giving the serial device connected to the 
     # NexStar hand controller. For example, '/dev/ttyUSB0'.
     def __init__(self, device):
         self.serial = serial.Serial(device, baudrate=9600, timeout=1)
         garbage_bytes = self.serial.inWaiting()
         self.serial.read(garbage_bytes)
-        self.DIR_AZIMUTH = 0
-        self.DIR_ELEVATION = 1
 
     # stop any active slewing on destruct
     def __del__(self):
@@ -105,12 +107,14 @@ class NexStar:
         command = 'T' + chr(mode)
         self._send_command(command)
 
-    # Generic variable-rate slew command. Variable-rate simply means that
+    # Variable-rate slew command. Variable-rate simply means that
     # the angular rate can be specified precisely in arcseconds per second,
     # in contrast to the small number of fixed rates available on the hand-
-    # controller. Direction is either self.DIR_AZIMUTH or self.DIR_ELEVATION.
-    # Rate has units of arcseconds per second and may be positive or negative.
-    def _var_slew_command(self, direction, rate):
+    # controller. Direction is either DIR_AZIMUTH or DIR_ELEVATION. Rate 
+    # has units of arcseconds per second and may be positive or negative.
+    # Max advertised rate is 3 deg/s, max commandable rate is 16319 
+    # arcseconds per second or ~4.5 deg/s.
+    def slew_var(self, direction, rate):
         assert direction in [self.DIR_AZIMUTH, self.DIR_ELEVATION]
         negative_rate = True if rate < 0 else False
         track_rate_high = (int(abs(rate)) * 4) / 256
@@ -122,19 +126,13 @@ class NexStar:
                   + chr(0))
         self._send_command(command)
 
-    # Commands the telescope to slew at the azimuth and elevation rates
-    # provided in units of arcseconds per second. Rates may be positive or 
-    # negative. Max advertised rate is 3 deg/s, max commandable rate is 16319 
-    # arcseconds per second or ~4.5 deg/s.
-    def slew_var(self, az_rate, el_rate):
-       self._var_slew_command(self.DIR_AZIMUTH, az_rate)
-       self._var_slew_command(self.DIR_ELEVATION, el_rate)
-
-    # Generic fixed-rate slew command. Fixed-rate means that only the nine
+    # Fixed-rate slew command. Fixed-rate means that only the nine
     # rates supported on the hand controller are available. Direction is
-    # either self.DIR_AZIMUTH or self.DIR_ELEVATION. Rate is an integer
-    # from -9 to +9, where 0 is stop and +/-9 is the maximum slew rate.
-    def _fixed_slew_command(self, direction, rate):
+    # either DIR_AZIMUTH or DIR_ELEVATION. Rate is an integer from -9 to +9, 
+    # where 0 is stop and +/-9 is the maximum slew rate.
+    def slew_fixed(self, direction, rate):
+        assert direction in [self.DIR_AZIMUTH, self.DIR_ELEVATION]
+        assert (rate >= -9) and (rate <= 9), 'fixed slew rate out of range'
         negative_rate = True if rate < 0 else False
         sign_char = chr(37) if negative_rate == True else chr(36)
         direction_char = chr(16) if direction == self.DIR_AZIMUTH else chr(17)
@@ -142,15 +140,6 @@ class NexStar:
         command = ('P' + chr(2) + direction_char + sign_char + rate_char
                    + chr(0) + chr(0) + chr(0))
         self._send_command(command)
-
-    # Commands the telescope to slew at the azimuth and elevation rates
-    # provided as integers in the range -9 to +9, corresponding to the
-    # rates available on the hand controller.
-    def slew_fixed(self, az_rate, el_rate):
-        assert (az_rate >= -9) and (az_rate <= 9), 'az_rate out of range'
-        assert (el_rate >= -9) and (el_rate <= 9), 'el_rate out of range'
-        self._fixed_slew_command(self.DIR_AZIMUTH, az_rate)
-        self._fixed_slew_command(self.DIR_ELEVATION, el_rate)
 
     # Returns the location of the telescope as a tuple of (latitude, 
     # longitude) in signed degrees format. 
@@ -262,4 +251,3 @@ class NexStar:
     # Cancels a goto command that is in progress.
     def cancel_goto(self):
         self._send_command('M')
-
