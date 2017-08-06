@@ -7,10 +7,6 @@ import time
 # Reference for NexStar commands: 
 # http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 class NexStar:
-    
-    # constants used to identify a slew axis
-    DIR_AZIMUTH = 0
-    DIR_ELEVATION = 1
 
     # The constructor argument is a string giving the serial device connected to the 
     # NexStar hand controller. For example, '/dev/ttyUSB0'.
@@ -55,13 +51,13 @@ class NexStar:
         return (self._precise_to_degrees(response[:8]),
                 self._precise_to_degrees(response[9:17]))
 
-    # Returns a tuple with current (azimuth, elevation) in degrees
-    # Azimuth range is [0,360) and elevation range is [-180,180)
-    def get_azel(self):
-        (az, el) = self._get_position('z')
-        # adjust range of elevation from [0,360) to [-180,180)
-        el = (el + 180.0) % 360.0 - 180.0
-        return (az, el)
+    # Returns a tuple with current (azimuth, altitude) in degrees
+    # Azimuth range is [0,360) and altitude range is [-180,180)
+    def get_azalt(self):
+        (az, alt) = self._get_position('z')
+        # adjust range of altitude from [0,360) to [-180,180)
+        alt = (alt + 180.0) % 360.0 - 180.0
+        return (az, alt)
         
     # Returns a tuple with current (right ascension, declination) in degrees
     def get_radec(self):
@@ -75,10 +71,10 @@ class NexStar:
                    + self._degrees_to_precise(values[1]))
         self._send_command(command)
         
-    # Commands the telescope to slew to the provided azimuth/elevation 
+    # Commands the telescope to slew to the provided azimuth/altitude 
     # coordinates in degrees
-    def goto_azel(self, az, el):
-        self._goto_command('b', (az, el))
+    def goto_azalt(self, az, alt):
+        self._goto_command('b', (az, alt))
     
     # Commands the telescope to slew to the provided right ascension and 
     # declination coordinates in degrees
@@ -93,7 +89,7 @@ class NexStar:
 
     # Returns the current tracking mode as an integer:
     # 0 = Off
-    # 1 = Alt/Az (elevation/azimuth)
+    # 1 = Alt/Az
     # 2 = EQ North
     # 3 = EQ South
     def get_tracking_mode(self):
@@ -110,16 +106,16 @@ class NexStar:
     # Variable-rate slew command. Variable-rate simply means that
     # the angular rate can be specified precisely in arcseconds per second,
     # in contrast to the small number of fixed rates available on the hand-
-    # controller. Direction is either DIR_AZIMUTH or DIR_ELEVATION. Rate 
+    # controller. The axis argument may be set to 'az' or 'alt'. Rate 
     # has units of arcseconds per second and may be positive or negative.
     # Max advertised rate is 3 deg/s, max commandable rate is 16319 
     # arcseconds per second or ~4.5 deg/s.
-    def slew_var(self, direction, rate):
-        assert direction in [self.DIR_AZIMUTH, self.DIR_ELEVATION]
+    def slew_var(self, axis, rate):
+        assert axis in ['az', 'alt']
         negative_rate = True if rate < 0 else False
         track_rate_high = (int(abs(rate)) * 4) / 256
         track_rate_low = (int(abs(rate)) * 4) % 256
-        direction_char = chr(16) if direction == self.DIR_AZIMUTH else chr(17)
+        direction_char = chr(16) if direction == 'az' else chr(17)
         sign_char = chr(7) if negative_rate == True else chr(6)
         command = ('P' + chr(3) + direction_char + sign_char 
                   + chr(track_rate_high) + chr(track_rate_low) + chr(0) 
@@ -127,15 +123,15 @@ class NexStar:
         self._send_command(command)
 
     # Fixed-rate slew command. Fixed-rate means that only the nine
-    # rates supported on the hand controller are available. Direction is
-    # either DIR_AZIMUTH or DIR_ELEVATION. Rate is an integer from -9 to +9, 
+    # rates supported on the hand controller are available. The axis argument
+    # may be set to 'az' or 'alt'. Rate is an integer from -9 to +9, 
     # where 0 is stop and +/-9 is the maximum slew rate.
     def slew_fixed(self, direction, rate):
-        assert direction in [self.DIR_AZIMUTH, self.DIR_ELEVATION]
+        assert direction in ['az', 'alt']
         assert (rate >= -9) and (rate <= 9), 'fixed slew rate out of range'
         negative_rate = True if rate < 0 else False
         sign_char = chr(37) if negative_rate == True else chr(36)
-        direction_char = chr(16) if direction == self.DIR_AZIMUTH else chr(17)
+        direction_char = chr(16) if direction == 'az' else chr(17)
         rate_char = chr(int(abs(rate)))
         command = ('P' + chr(2) + direction_char + sign_char + rate_char
                    + chr(0) + chr(0) + chr(0))
