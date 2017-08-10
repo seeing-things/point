@@ -6,7 +6,7 @@ import time
 
 # Reference for NexStar commands: 
 # http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
-class NexStar:
+class NexStar(object):
 
     # The constructor argument is a string giving the serial device connected to the 
     # NexStar hand controller. For example, '/dev/ttyUSB0'.
@@ -18,7 +18,8 @@ class NexStar:
     # stop any active slewing on destruct
     def __del__(self):
         self.cancel_goto()
-        self.slew_fixed(0, 0)
+        self.slew_fixed('az', 0)
+        self.slew_fixed('alt', 0)
 
     # Send a command to the hand controller and get a response. The command
     # argument gives the ASCII command to send. The response_len is an integer
