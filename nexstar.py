@@ -212,7 +212,7 @@ class NexStar(object):
         ) 
         self._send_command(command)
 
-    # Returns device version as a floating point value.
+    # Returns version as a floating point value.
     def get_version(self):
         response = self._send_command('V', 2)
         return ord(response[0]) + ord(response[1]) / 10.0
@@ -222,6 +222,21 @@ class NexStar(object):
     def get_model(self):
         response = self._send_command('m', 1)
         return ord(response)
+
+    # Returns device version as a floating point value.
+    def get_device_version(self, dev):
+        command = (
+            'P'
+            + chr(1)
+            + chr(dev)
+            + chr(254)
+            + chr(0)
+            + chr(0)
+            + chr(0)
+            + chr(2)
+        )
+        response = self._send_command(command, 2)
+        return ord(response[0]) + ord(response[1]) / 10.0
 
     # Sends a character to the telescope hand controller, which the hand 
     # controller will echo back in response. The argument to the function 
