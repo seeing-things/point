@@ -2,6 +2,7 @@ import serial
 import io
 import datetime
 import time
+import calendar
 
 
 # Reference for NexStar commands: 
@@ -200,14 +201,14 @@ class NexStar(object):
             ord(response[2]),        # second
             0,                       # microseconds
         ) 
-        return time.mktime(t.timetuple())
+        return calendar.timegm(t.timetuple())
 
     # Set the time on the telescope. The timestamp argument is given in seconds
     # since the Unix epoch (1 Jan 1970). Timezone information and daylight 
     # savings time are not currently supported, so the GMT/UTC offset will be
     # set to zero and Daylight Savings will be disabled (Standard Time).
     def set_time(self, timestamp):
-        t = datetime.datetime.fromtimestamp(timestamp)
+        t = datetime.datetime.utcfromtimestamp(timestamp)
         command = ('H'
             + chr(t.hour)
             + chr(t.minute)
