@@ -12,11 +12,19 @@ class NexStar(object):
     # NexStar hand controller. For example, '/dev/ttyUSB0'.
     def __init__(self, device):
         self.serial = serial.Serial(device, baudrate=9600, timeout=1)
+        self._flush_read_buffer()
+
+    def _flush_read_buffer(self):
         garbage_bytes = self.serial.inWaiting()
         self.serial.read(garbage_bytes)
 
     # stop any active slewing on destruct
     def __del__(self):
+        # Constructor could be called when a command was already in progress.
+        # Wait for any commands to complete and flush the read buffer before
+        # proceeding.
+        time.sleep(0.1)
+        self._flush_read_buffer()
         self.cancel_goto()
         self.slew_fixed('az', 0)
         self.slew_fixed('alt', 0)
