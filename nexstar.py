@@ -21,7 +21,7 @@ class NexStar(object):
 
     # stop any active slewing on destruct
     def __del__(self):
-        # Constructor could be called when a command was already in progress.
+        # Destructor could be called when a command was already in progress.
         # Wait for any commands to complete and flush the read buffer before
         # proceeding.
         time.sleep(0.1)
