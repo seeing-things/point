@@ -12,7 +12,7 @@ __all__ = ['NexStar']
 # http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 class NexStar(object):
 
-    # The constructor argument is a string giving the serial device connected to the 
+    # The constructor argument is a string giving the serial device connected to the
     # NexStar hand controller. For example, '/dev/ttyUSB0'.
     def __init__(self, device):
         self.serial = serial.Serial(device, baudrate=9600, timeout=1)
@@ -36,7 +36,7 @@ class NexStar(object):
     # Send a command to the hand controller and get a response. The command
     # argument gives the ASCII command to send. The response_len is an integer
     # giving the number of characters expected in the response, excluding the
-    # the terminating '#' character. The response received from the hand 
+    # the terminating '#' character. The response received from the hand
     # controller is validated and returned, excluding the termination character.
     def _send_command(self, command, response_len = 0):
         self.serial.write(command)
@@ -56,7 +56,7 @@ class NexStar(object):
     def _degrees_to_precise(self, degrees):
         return '%08X' % round((degrees % 360.) / 360. * 2.**32)
 
-    # Generic get position helper function. Expects the precise version of 
+    # Generic get position helper function. Expects the precise version of
     # these commands.
     def _get_position(self, command):
         assert command in ['e', 'z']
@@ -71,32 +71,32 @@ class NexStar(object):
         # adjust range of altitude from [0,360) to [-180,180)
         alt = (alt + 180.0) % 360.0 - 180.0
         return (az, alt)
-        
+
     # Returns a tuple with current (right ascension, declination) in degrees
     def get_radec(self):
-        return self._get_position('e') 
+        return self._get_position('e')
 
-    # Generic goto helper function. Expects the precise version of these 
+    # Generic goto helper function. Expects the precise version of these
     # commands.
     def _goto_command(self, char, values):
-        assert char in ['b', 'r', 's'] 
-        command = (char + self._degrees_to_precise(values[0]) + ',' 
+        assert char in ['b', 'r', 's']
+        command = (char + self._degrees_to_precise(values[0]) + ','
                    + self._degrees_to_precise(values[1]))
         self._send_command(command)
-        
-    # Commands the telescope to slew to the provided azimuth/altitude 
+
+    # Commands the telescope to slew to the provided azimuth/altitude
     # coordinates in degrees
     def goto_azalt(self, az, alt):
         self._goto_command('b', (az, alt))
-    
-    # Commands the telescope to slew to the provided right ascension and 
+
+    # Commands the telescope to slew to the provided right ascension and
     # declination coordinates in degrees
     def goto_radec(self, ra, dec):
         self._goto_command('r', (ra, dec))
-        
+
     # Informs the hand controller that the telescope is currently pointed at
-    # the provided right ascension and declination coordinates to improve 
-    # accuracy of future goto commands. See command reference for details. 
+    # the provided right ascension and declination coordinates to improve
+    # accuracy of future goto commands. See command reference for details.
     def sync(self, ra, dec):
         self._goto_command('s', (ra, dec))
 
@@ -109,7 +109,7 @@ class NexStar(object):
         response = self._send_command('t', 1)
         return ord(response[0])
 
-    # Sets the tracking mode, 0-3, as a integer. See list in comments for 
+    # Sets the tracking mode, 0-3, as a integer. See list in comments for
     # get_tracking_mode.
     def set_tracking_mode(self, mode):
         assert mode in [0,1,2,3]
@@ -119,9 +119,9 @@ class NexStar(object):
     # Variable-rate slew command. Variable-rate simply means that
     # the angular rate can be specified precisely in arcseconds per second,
     # in contrast to the small number of fixed rates available on the hand-
-    # controller. The axis argument may be set to 'az' or 'alt'. Rate 
+    # controller. The axis argument may be set to 'az' or 'alt'. Rate
     # has units of arcseconds per second and may be positive or negative.
-    # Max advertised rate is 3 deg/s, max commandable rate is 16319 
+    # Max advertised rate is 3 deg/s, max commandable rate is 16319
     # arcseconds per second or ~4.5 deg/s.
     def slew_var(self, axis, rate):
         assert axis in ['az', 'alt']
@@ -130,14 +130,14 @@ class NexStar(object):
         track_rate_low = (int(abs(rate)) * 4) % 256
         axis_char = chr(16) if axis == 'az' else chr(17)
         sign_char = chr(7) if negative_rate == True else chr(6)
-        command = ('P' + chr(3) + axis_char + sign_char 
-                  + chr(track_rate_high) + chr(track_rate_low) + chr(0) 
+        command = ('P' + chr(3) + axis_char + sign_char
+                  + chr(track_rate_high) + chr(track_rate_low) + chr(0)
                   + chr(0))
         self._send_command(command)
 
     # Fixed-rate slew command. Fixed-rate means that only the nine
     # rates supported on the hand controller are available. The axis argument
-    # may be set to 'az' or 'alt'. Rate is an integer from -9 to +9, 
+    # may be set to 'az' or 'alt'. Rate is an integer from -9 to +9,
     # where 0 is stop and +/-9 is the maximum slew rate.
     def slew_fixed(self, axis, rate):
         assert axis in ['az', 'alt']
@@ -150,8 +150,8 @@ class NexStar(object):
                    + chr(0) + chr(0) + chr(0))
         self._send_command(command)
 
-    # Returns the location of the telescope as a tuple of (latitude, 
-    # longitude) in signed degrees format. 
+    # Returns the location of the telescope as a tuple of (latitude,
+    # longitude) in signed degrees format.
     def get_location(self):
         response = self._send_command('w', 8)
         lat_deg = ord(response[0])
@@ -179,9 +179,9 @@ class NexStar(object):
         lon_deg = int(abs(lon))
         lon_min = int((abs(lon) - lon_deg) * 60.0)
         lon_sec = int((abs(lon) - lon_deg - lon_min / 60.0) * 3600.0)
-        command = ('W' 
-            + chr(lat_deg) 
-            + chr(lat_min) 
+        command = ('W'
+            + chr(lat_deg)
+            + chr(lat_min)
             + chr(lat_sec)
             + chr(lat < 0)
             + chr(lon_deg)
@@ -203,11 +203,11 @@ class NexStar(object):
             ord(response[1]),        # minute
             ord(response[2]),        # second
             0,                       # microseconds
-        ) 
+        )
         return calendar.timegm(t.timetuple())
 
     # Set the time on the telescope. The timestamp argument is given in seconds
-    # since the Unix epoch (1 Jan 1970). Timezone information and daylight 
+    # since the Unix epoch (1 Jan 1970). Timezone information and daylight
     # savings time are not currently supported, so the GMT/UTC offset will be
     # set to zero and Daylight Savings will be disabled (Standard Time).
     def set_time(self, timestamp):
@@ -221,7 +221,7 @@ class NexStar(object):
             + chr(t.year - 2000)
             + chr(0)
             + chr(0)
-        ) 
+        )
         self._send_command(command)
 
     # Returns version as a floating point value.
@@ -250,9 +250,9 @@ class NexStar(object):
         response = self._send_command(command, 2)
         return ord(response[0]) + ord(response[1]) / 10.0
 
-    # Sends a character to the telescope hand controller, which the hand 
-    # controller will echo back in response. The argument to the function 
-    # is an integer in the range 0 to 255. If the command is successful, the 
+    # Sends a character to the telescope hand controller, which the hand
+    # controller will echo back in response. The argument to the function
+    # is an integer in the range 0 to 255. If the command is successful, the
     # return value will match the argument.
     def echo(self, x):
         command = 'K' + chr(x)
