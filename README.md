@@ -1,2 +1,0 @@
-# point
-Point includes a single Python class `NexStar` that wraps the serial commands supported by the Celestron NexStar telescope hand controllers. All of the commands documented in [this document](http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip) are supported. See the comments in the source code for information on each function. This project has been tested by the author with a Celestron NexStar 130 SLT.

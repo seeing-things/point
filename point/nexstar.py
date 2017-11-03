@@ -5,7 +5,10 @@ import time
 import calendar
 
 
-# Reference for NexStar commands: 
+__all__ = ['NexStar']
+
+
+# Reference for NexStar commands:
 # http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 class NexStar(object):
 
