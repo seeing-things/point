@@ -17,7 +17,7 @@ setup(
     # https://packaging.python.org/en/latest/single_source_version.html
     version='0.1.0',
 
-    description='Serial command interfaces for Celestron telescopes',
+    description='Serial command interfaces for telescopes',
     long_description=long_description,
 
     url='https://github.com/bgottula/point',
@@ -36,7 +36,7 @@ setup(
         'Programming Language :: Python :: 2.7',
     ],
 
-    keywords='astronomy telescopes celestron nexstar',
+    keywords='astronomy telescopes celestron nexstar losmandy gemini',
 
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
 
