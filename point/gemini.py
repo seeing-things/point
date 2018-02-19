@@ -7,7 +7,84 @@ import calendar
 __all__ = ['Gemini2']
 
 
-# Reference for Gemini 2 commands: http://www.gemini-2.com/web/L5V2_1serial.html
+# TODO: Modifiy the Gemini2 class to support both serial and network interfaces
+# TODO: Create an abstract class for transporting serial commands, make
+#       Gemini2UDP inherit from this. Make a corresponding Gemini2Serial class
+#       that also inherits from this.
+# TODO: Handle UDP response timeouts appropriately
+
+
+class Gemini2UDP(object):
+    """Implements the Gemini 2 UDP protocol.
+
+    This class implements the UDP protocol for Gemini 2 as documented here:
+    http://gemini-2.com/Gemini2_drivers/UPD_Protocol/Gemini_UDP_Protocol_Specification_1.0.pdf
+
+    Attributes:
+        seqnum: packet sequence number
+        sendaddr: send address tuple
+        sock: socket.socket object
+    """
+
+    def __init__(self, hostname, port=11110):
+        """Constructs a Gemini2UDP object.
+
+        Args:
+            hostname: The hostname or IP address of Gemini 2 as a string.
+            port: UDP protocol port number for Gemini 2.
+        """
+        self.seqnum = 0
+        self.sendaddr = (hostname, port)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.settimeout(0.25)
+        self.sock.bind(('0.0.0.0', port))
+
+    def send_cmd(self, serial_cmds):
+        """Sends one or more serial commands and gets a response.
+
+        This method sends one or more serial commands and waits to receive
+        the corresponding response from Gemini 2.
+
+        Args:
+            serial_cmds: A string containing the serial command(s) to send.
+                The string should include the entire command including the
+                termination character. If multiple commands are to be sent
+                they should be concatenated back-to-back with no additional
+                delimiting characters or spaces.
+
+        Returns:
+            A string with the response to the command or commands that were
+            sent. If the serial command has no response (not even a #
+            character) then None is returned. Note that even when None is
+            returned this method has still confirmed that the command was
+            acknowledged.
+
+        Raises:
+            ValueError: When serial_cmds is too long.
+            RuntimeError: When there is a mismatch in the sequence number.
+        """
+        if len(serial_cmds) > 254:
+            raise ValueError('serial command string is too long!')
+        msg = struct.pack('!II', self.seqnum, 0)
+        msg += serial_cmds + '\0'
+        self.sock.sendto(msg, self.sendaddr)
+        try:
+            response = self.sock.recv(255)
+        except socket.timeout:
+            # TODO: Handle this exception by sending NACKs
+            print('timeout on recv')
+            return
+        seqnum, = struct.unpack('!I', response[0:4])
+        if seqnum != self.seqnum:
+            raise RuntimeError('sequence number mismatch')
+        self.seqnum += 1
+        serial_reply = response[8:].split('\0')[0]
+        if serial_reply[0] == chr(0x06):
+            return None
+        else:
+            return response[8:].split('\0')[0]
+
+
 class Gemini2(object):
     """Implements serial and UDP command interfaces for Gemini 2.
 
