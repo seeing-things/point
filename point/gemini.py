@@ -120,7 +120,7 @@ class Gemini2(object):
 
     def _flush_read_buffer(self):
         """Clears any characters waiting in the serial receive buffer."""
-        garbage_bytes = self.serial.inWaiting()
+        garbage_bytes = self.serial.in_waiting
         self.serial.read(garbage_bytes)
 
     def lx200_cmd(self, cmd, expect_reply=False, reply_len=None):
