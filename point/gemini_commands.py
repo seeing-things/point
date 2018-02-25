@@ -15,6 +15,9 @@ class Gemini2Command(ABC):
     @abstractmethod
     def response(): pass
 
+    # raised when invalid arguments are provided for encoding the command
+    class ArgumentError(Exception): pass
+
 # ==================================================================================================
 
 class Gemini2Command_ACK(Gemini2Command):
@@ -37,11 +40,45 @@ class Gemini2Command_LX200_NoReply(Gemini2Command_LX200):
 
 class Gemini2Command_Native(Gemini2Command):
     def encode(self, chars):
+        return chars + compute_checksum(chars) + '#'
+
+    @staticmethod
+    def compute_checksum(chars):
+        csum = 0
+        for char in chars:
+            csum = csum ^ ord(char)
+        return (csum % 128) + 64
+
+class Gemini2Command_Native_Get(Gemini2Command_Native):
+    def encode(self, chars):
+        return super().encode('<' + self.id() + ':' + param)
+
+    @abstractmethod
+    def id(self): pass
+
+    def param(self): return None
+
+class Gemini2Command_Native_Set(Gemini2Command_Native):
+    def encode(self, chars):
+        return super().encode('<' + self.id() + ':' + param)
+
+    @abstractmethod
+    def id(self): pass
+
+    def param(self): return None
+
+
+"""
+class Gemini2Command_Native(Gemini2Command):
+    def encode(self, chars):
+
+
         # TODO: base/generic G2 native encoding
         pass
 
 class Gemini2Command_Native_NoReply(Gemini2Command_Native):
     def response(): return None
+"""
 
 
 ####################################################################################################
@@ -189,64 +226,88 @@ class G2Rsp_StartupCheck(Gemini2Response_ACK): pass # .get() returns the char
 
 ### Synchronization Commands
 
-# TODO: the echo cmd actually only supports one-char, not strs.
-# so change the types involved here,
-# and also in encode and/or decode, verify length of 1
 class G2Cmd_Echo(Gemini2Command_LX200):
-    def __init__(self, str):
-        super().__init__()
-        self._str = str
-    def encode(self, chars): return super().encode('CE' + self._str)
+    def __init__(self, char):
+#        super().__init__()
+        self._char = char
+    def encode(self):
+        if len(self._char) != 1:
+            raise ArgumentError('echo command only supports a single character')
+        return super().encode('CE' + self._char)
     def response(self): return G2Rsp_Echo()
-class G2Rsp_Echo(Gemini2Response_LX200): pass # .get() returns the string
-# TODO: probably make the echo response class verify that the echoed string is the same as the one sent
+class G2Rsp_Echo(Gemini2Response_LX200): pass # .get() returns the char
+
+# ...
 
 
-#def echo(self, char):
-#    """Test command. Should return the same character as the argument."""
-#    return self.lx200_cmd('CE' + char, expect_reply=True)
-#
-#def align_to_object(self):
-#    """Add selected object to pointing model."""
-#    return self.lx200_cmd('Cm', expect_reply=True)
-#
-#def sync_to_object(self):
-#    """Synchronize to selected object."""
-#    return self.lx200_cmd('CM', expect_reply=True)
-#
-#def select_pointing_model(self, num):
-#    """Select a pointing model (0 or 1)."""
-#    return int(self.lx200_cmd('C' + chr(num), expect_reply=True))
-#
-#def select_pointing_model_for_io(self):
-#    """Selects the active pointing model for I/O access."""
-#    return int(self.lx200_cmd('Cc', expect_reply=True))
-#
-#def get_pointing_model(self):
-#    """Get number of active pointing model (0 or 1)."""
-#    return int(self.lx200_cmd('C?', expect_reply=True))
-#
-#def init_align(self):
-#    """Perform Initial Align with selected object."""
-#    return self.lx200_cmd('CI', expect_reply=True)
-#
-#def reset_model(self):
-#    """Resets the currently selected model."""
-#    return int(self.lx200_cmd('CR', expect_reply=True))
-#
-#def reset_last_align(self):
-#    """Resets the last alignment of currently selected model."""
-#    return int(self.lx200_cmd('CU', expect_reply=True))
+### Focus Control Commands
+
+# ...
 
 
+### Get Information Commands
+
+# ...
 
 
+### Park Commands
+
+# ...
 
 
-def hello(str):
-    print(str)
+### Move Commands
+
+# ...
 
 
-# I <3 Python and underscores
-if __name__ == '__main__':
-    hello('hi')
+### Precision Guiding Commands
+
+# ...
+
+
+### Object/Observing/Output Commands
+
+# ...
+
+
+### Precession and Refraction Commands
+
+# ...
+
+
+### Precision Commands
+
+class G2Cmd_GetPrecision(Gemini2Command_LX200):
+    def encode(self):
+        return super().encode('P')
+    def response(self): return G2Rsp_GetPrecision()
+class G2Rsp_GetPrecision(Gemini2Response_LX200): pass # .get() returns the big long ugly 14-char string
+# TODO: invent an enum and implement decode() in this response to convert the str to the enum val
+
+class G2Cmd_TogglePrecision(Gemini2Command_LX200_NoReply):
+    def encode(self):
+        return super().encode('U')
+
+class G2Cmd_SetDblPrecision(Gemini2Command_LX200_NoReply):
+    def encode(self):
+        return super().encode('u')
+
+
+### Quit Motion Commands
+
+# ...
+
+
+### Rate Commands
+
+# ...
+
+
+### Set Commands
+
+# ...
+
+
+### Site Selection Commands
+
+# ...

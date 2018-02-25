@@ -17,9 +17,10 @@ import gemini_commands
 
 
 class Gemini2Backend(ABC):
-    class NotSupportedError(Exception): pass
-    class ReadTimeoutError(Exception):  pass
-    class ResponseError(Exception):     pass
+    class NotImplementedYetError(Exception): pass
+    class NotSupportedError(Exception):      pass
+    class ReadTimeoutError(Exception):       pass
+    class ResponseError(Exception):          pass
 
     @abstractmethod
     def execute_one_command(self, cmd):
@@ -30,7 +31,7 @@ class Gemini2Backend(ABC):
         pass
 
 
-# TODO: set timeout; handle serial.SerialTimeoutException
+# TODO: handle serial.SerialTimeoutException (?)
 
 class Gemini2BackendSerial(Gemini2Backend):
     def __init__(self, timeout, devname):
@@ -40,8 +41,6 @@ class Gemini2BackendSerial(Gemini2Backend):
         # TODO: set baud to 115.2k or whatever here
         self._serial = serial.Serial(devname, timeout=self._timeout)
         self._serial.reset_input_buffer()
-
-        # TODO: send the initial double-precision cmd from the Gemini2 class, not from the backend here
 
     def execute_one_command(self, cmd):
         buf_cmd = cmd.encode(None)
@@ -143,13 +142,12 @@ class Gemini2BackendUDP(Gemini2Backend):
             return resp
 
     def execute_multiple_commands(self, *cmds):
-        # TODO
-        pass
+        raise NotImplementedYetError('TODO')
 
     def _synchronously_send_and_recv(self, chars):
         # TODO: use this as the underlying function for the bulk of the common datagram handling
         # stuff in both execute_one_command and execute_multiple_commands
-        pass
+        raise NotImplementedYetError('TODO')
 
 
 """
@@ -161,7 +159,9 @@ if __name__ == '__main__':
     print(resp.get())
 """
 
+"""
 if __name__ == '__main__':
     usb = Gemini2BackendSerial(0.25, '/dev/ttyACM0')
     resp = usb.execute_one_command(gemini_commands.G2Cmd_Echo('X'))
     print(resp.get())
+"""
