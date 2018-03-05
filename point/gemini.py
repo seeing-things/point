@@ -1,8 +1,8 @@
 import datetime
 import time
 import calendar
-import gemini_backend
-from gemini_commands import *
+import point.gemini_backend
+from point.gemini_commands import *
 
 
 __all__ = ['Gemini2']
@@ -41,7 +41,15 @@ class Gemini2(object):
                 (if using UDP datagrams).
         """
         self._backend = backend
-        self._set_double_precision()
+        self.set_double_precision()
+
+    def __del__(self):
+        try:
+            self.slew_ra (0.0)
+        except: pass
+        try:
+            self.slew_dec(0.0)
+        except: pass
 
 #    def lx200_cmd(self, cmd, expect_reply=False, reply_len=None):
 #        """Sends a LX200 format command.
@@ -126,28 +134,11 @@ class Gemini2(object):
 #                raise self.ResponseException('Native command checksum failure')
 #            return response[:-2]
 
-#    @staticmethod
-#    def checksum(cmd):
-#        """Computes checksum for Gemini native commands.
-#
-#        Args:
-#            cmd: A string containing command characters up to but excluding the
-#                checksum (which this function computes) and the termination #
-#                character.
-#
-#        Returns:
-#            The checksum as an integer.
-#        """
-#        checksum = 0
-#        for c in cmd:
-#            checksum = checksum ^ ord(c)
-#        return (checksum % 128) + 64
-
     def exec_cmd(self, cmd):
-        return _backend.execute_one_command(cmd)
+        return self._backend.execute_one_command(cmd)
 
     def exec_cmds(self, *cmds):
-        return _backend.execute_multiple_commands(*cmds)
+        return self._backend.execute_multiple_commands(*cmds)
 
 
     ## Commands
@@ -161,6 +152,15 @@ class Gemini2(object):
     def startup_check(self):
         """Check startup state and type of mount."""
         return self.exec_cmd(G2Cmd_StartupCheck()).get()
+
+    def select_startup_mode(self, mode):
+        self.exec_cmd(G2Cmd_SelectStartupMode(mode))
+
+
+    ### Macro Commands
+
+    def enq_macro(self):
+        return self.exec_cmd(G2Cmd_MacroENQ()).get()
 
 
     ### Synchronization Commands
@@ -391,6 +391,15 @@ class Gemini2(object):
 
     ### Precision Commands
 
+    def get_precision(self):
+        return self.exec_cmd(G2Cmd_GetPrecision()).get()
+
+    def toggle_precision(self):
+        self.exec_cmd(G2Cmd_TogglePrecision())
+
+    def set_double_precision(self):
+        self.exec_cmd(G2Cmd_SetDblPrecision())
+
 
     ### Quit Motion Commands
 
@@ -404,10 +413,26 @@ class Gemini2(object):
     ### Site Selection Commands
 
 
+    ### Native Commands
 
 
+    ### Undocumented Commands
 
+    def undoc_set_ra_divisor(self, div):
+        self.exec_cmd(G2Cmd_Undoc_RA_Divisor_Set(div))
 
+    def undoc_set_dec_divisor(self, div):
+        self.exec_cmd(G2Cmd_Undoc_DEC_Divisor_Set(div))
+
+    def undoc_ra_start_movement(self):
+        self.exec_cmd(G2Cmd_Undoc_RA_StartStop_Set(G2Stopped.NOT_STOPPED))
+    def undoc_ra_stop_movement(self):
+        self.exec_cmd(G2Cmd_Undoc_RA_StartStop_Set(G2Stopped.STOPPED))
+
+    def undoc_dec_start_movement(self):
+        self.exec_cmd(G2Cmd_Undoc_DEC_StartStop_Set(G2Stopped.NOT_STOPPED))
+    def undoc_dec_stop_movement(self):
+        self.exec_cmd(G2Cmd_Undoc_DEC_StartStop_Set(G2Stopped.STOPPED))
 
 
 
@@ -452,21 +477,80 @@ class Gemini2(object):
         )
         return calendar.timegm(t.timetuple())
 
+    def slew_ra(self, rate):
+        """Variable rate slew in the right ascension / hour angle axis.
+
+        This slew command allows changes to the slew rate on the fly, in
+        contrast to move commands which do not.
+
+        Args:
+            rate: Slew rate in degrees per second. Positive values move east,
+                toward increasing right ascension.
+        """
+        # print('slew_ra: rate = ' + str(rate))
+        if rate != 0.0:
+            # the divisor is negated here to reverse the direction
+            div = -int(12e6 / (6400.0 * rate))
+        else:
+            div = 0
+
+        self.undoc_set_ra_divisor(div)
+        #if div != 0:
+        #    self.undoc_ra_start_movement()
+        #else:
+        #    self.undoc_ra_stop_movement()
+
+    def slew_dec(self, rate):
+        """Variable rate slew in the declination axis.
+
+        This slew command allows changes to the slew rate on the fly, in
+        contrast to move commands which do not.
+
+        Args:
+            rate: Slew rate in degrees per second. Positive values move toward
+                increasing declination when the mount is west of the meridian.
+                Positive values move toward decreasing declination when the
+                mount is east of the meridian.
+        """
+        # print('slew_dec: rate = ' + str(rate))
+        if rate != 0.0:
+            div = int(12e6 / (6400.0 * rate))
+        else:
+            div = 0
+
+        self.undoc_set_dec_divisor(div)
+        #if div != 0:
+        #    self.undoc_dec_start_movement()
+        #else:
+        #    self.undoc_dec_stop_movement()
 
 
+if __name__ == '__main__':
+    g = Gemini2(gemini_backend.Gemini2BackendUDP(0.25, '192.168.10.100'))
+    print('established UDP connection to mount')
 
+    time.sleep(1.0)
 
+    print('invoking ENQ macro:')
+    print(g.enq_macro())
 
+    time.sleep(1.0)
 
+#    print('slewing RA @ -1.0 deg/sec for 3.0 secs')
+#    g.slew_ra(-1.0)
+#    time.sleep(3.0)
+#    g.slew_ra(0.0)
+#    print('done')
+#
+#    time.sleep(1.0)
+#
+#    print('slewing DEC @ -1.0 deg/sec for 3.0 secs')
+#    g.slew_dec(-1.0)
+#    time.sleep(3.0)
+#    g.slew_dec(0.0)
+#    print('done')
 
+    time.sleep(1.0)
 
-    def get_precision(self):
-        return self.exec_cmd(G2Cmd_GetPrecision()).get()
-
-    def _toggle_precision(self):
-        """Private because only double precision is supported."""
-        self.exec_cmd(G2Cmd_TogglePrecision())
-
-    def _set_double_precision(self):
-        """Private because only double precision is supported."""
-        self.exec_cmd(G2Cmd_SetDblPrecision())
+    print('invoking ENQ macro:')
+    print(g.enq_macro())
