@@ -701,7 +701,7 @@ class G2Cmd_SetDblPrecision(Gemini2Command_LX200_NoReply):
 ##    def native_params(self): return '{:d}'.format(self._val)
 #    def response(self):      return None # TODO!
 
-
+"""
 HIGH PRIORITY COMMANDS TO IMPLEMENT
 ===================================
 macro 0x05 (ENQ)
