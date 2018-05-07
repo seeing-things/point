@@ -495,34 +495,3 @@ class Gemini2(object):
         #    self.undoc_dec_start_movement()
         #else:
         #    self.undoc_dec_stop_movement()
-
-
-if __name__ == '__main__':
-    g = Gemini2(gemini_backend.Gemini2BackendUDP(0.25, '192.168.10.100'))
-    print('established UDP connection to mount')
-
-    time.sleep(1.0)
-
-    print('invoking ENQ macro:')
-    print(g.enq_macro())
-
-    time.sleep(1.0)
-
-#    print('slewing RA @ -1.0 deg/sec for 3.0 secs')
-#    g.slew_ra(-1.0)
-#    time.sleep(3.0)
-#    g.slew_ra(0.0)
-#    print('done')
-#
-#    time.sleep(1.0)
-#
-#    print('slewing DEC @ -1.0 deg/sec for 3.0 secs')
-#    g.slew_dec(-1.0)
-#    time.sleep(3.0)
-#    g.slew_dec(0.0)
-#    print('done')
-
-    time.sleep(1.0)
-
-    print('invoking ENQ macro:')
-    print(g.enq_macro())

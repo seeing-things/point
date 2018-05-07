@@ -735,18 +735,3 @@ BELOW THAT
 everything else in category/alphabetical order
 
 """
-
-
-if __name__ == '__main__':
-#    import sys
-#    for arg in sys.argv[1:]:
-#        try:
-#            val = parse_int(arg)
-#        except:
-#            e_type, e, e_trace = sys.exc_info()
-#            print('"{:s}"  -->  {:s}: "{:s}"\n'.format(arg, str(e_type), str(e)))
-#        else:
-#            print('"{:s}"  -->  {:d}\n'.format(arg, val))
-    rsp = G2Rsp_MacroENQ()
-    rsp.decode('1152000;1152000;0.907784;+90.000000;+6.000001;180.000000;+33.818611;N;N;N;E;6.907785;0;63;26327.898667;63;01060100;0;0;0;0;')
-    print(rsp.get())

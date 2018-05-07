@@ -6,16 +6,6 @@ import string
 import point.gemini_commands
 
 
-####################################################################################################
-####################################################################################################
-####################################################################################################
-# IMPORTANT: FOR INITIAL USE, WRAP ALL OF THIS STUFF IN A GIANT TRY BLOCK THAT JUST PRINTS THE    ##
-#            EXCEPTION AND CONTINUES RUNNING, RATHER THAN TERMINATING ON POSSIBLE FALSE POSITIVES ##
-####################################################################################################
-####################################################################################################
-####################################################################################################
-
-
 class Gemini2Backend(ABC):
     class NotImplementedYetError(Exception): pass
     class NotSupportedError(Exception):      pass
@@ -270,10 +260,3 @@ class Gemini2BackendUDP(Gemini2Backend):
 
     def get_statistic(self, key):
         return self._stats[key]
-
-"""
-if __name__ == '__main__':
-    usb = Gemini2BackendSerial(0.25, '/dev/ttyACM0')
-    resp = usb.execute_one_command(gemini_commands.G2Cmd_Echo('X'))
-    print(resp.get())
-"""
