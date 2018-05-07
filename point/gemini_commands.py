@@ -204,7 +204,6 @@ class Gemini2Command_LX200(Gemini2Command):
 
     def _check_validity(self, cmd_str):
         # TODO: do a more rigorous valid-character-range check here
-        assert not ':' in cmd_str
         assert not '#' in cmd_str
         assert not '\x00' in cmd_str
         assert not '\x06' in cmd_str
