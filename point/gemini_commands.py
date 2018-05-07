@@ -727,7 +727,8 @@ class G2Cmd_SetObjectRA(Gemini2Command_LX200):
         _, self._deg, self._min, self._sec = ang_to_degminsec(ra)
     def lx200_str(self): return 'Sr{:02d}:{:02d}:{:02d}'.format(self._deg, self._min, int(self._sec))
     def response(self):  return G2Rsp_SetObjectRA(self)
-class G2Rsp_SetObjectRA(Gemini2Response_LX200):
+class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
+    def fixed_len(self): return 1
     def interpret(self):
         validity = G2Valid(self.get_raw())  # raises ValueError if the response field value isn't in the enum
         assert validity == G2Valid.VALID
@@ -739,7 +740,8 @@ class G2Cmd_SetObjectDec(Gemini2Command_LX200):
         self._signchar = '+' if sign >= 0.0 else '-'
     def lx200_str(self): return 'Sd{:s}{:02d}:{:02d}:{:02d}'.format(self._signchar, self._deg, self._min, int(self._sec))
     def response(self):  return G2Rsp_SetObjectDec(self)
-class G2Rsp_SetObjectDec(Gemini2Response_LX200):
+class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
+    def fixed_len(self): return 1
     def interpret(self):
         validity = G2Valid(self.get_raw())  # raises ValueError if the response field value isn't in the enum
         assert validity == G2Valid.VALID
