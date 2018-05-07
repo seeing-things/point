@@ -86,15 +86,13 @@ class Gemini2(object):
         """Test command. Should return the same character as the argument."""
         return self.exec_cmd(G2Cmd_Echo(char)).get()
 
-    # TODO: reimplement this
-#    def align_to_object(self):
-#        """Add selected object to pointing model."""
-#        return self.lx200_cmd('Cm', expect_reply=True)
+    def align_to_object(self):
+        """Add selected object to pointing model."""
+        return self.exec_cmd(G2Cmd_AlignToObject()).get()
 
-    # TODO: reimplement this
-#    def sync_to_object(self):
-#        """Synchronize to selected object."""
-#        return self.lx200_cmd('CM', expect_reply=True)
+    def sync_to_object(self):
+        """Synchronize to selected object."""
+        return self.exec_cmd(G2Cmd_SyncToObject()).get()
 
     # TODO: reimplement this
 #    def select_pointing_model(self, num):
@@ -357,6 +355,9 @@ class Gemini2(object):
 
     ### Object/Observing/Output Commands
 
+    def set_object_name(self, name):
+        self.exec_cmd(G2Cmd_SetObjectName(name))
+
 
     ### Precession and Refraction Commands
 
@@ -380,6 +381,12 @@ class Gemini2(object):
 
 
     ### Set Commands
+
+    def set_object_ra(self, ra):
+        self.exec_cmd(G2Cmd_SetObjectRA(ra))
+
+    def set_object_dec(self, dec):
+        self.exec_cmd(G2Cmd_SetObjectDec(dec))
 
 
     ### Site Selection Commands
@@ -448,6 +455,12 @@ class Gemini2(object):
             microseconds,
         )
         return calendar.timegm(t.timetuple())
+
+    def set_user_object_equatorial(self, ra, dec, name=''):
+        self.set_object_ra(ra)
+        if name != '':
+            self.set_object_name(name)
+        self.set_object_dec(dec)
 
     def slew_ra(self, rate):
         """Variable rate slew in the right ascension / hour angle axis.

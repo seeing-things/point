@@ -127,6 +127,24 @@ class IntegerBoundsViolation(BoundsViolation):
 ####################################################################################################
 
 
+# returns tuple: (int:sign[-1|0|+1], int:deg, int:min, float:sec)
+def ang_to_degminsec(ang):
+    if   ang > 0.0: sign = +1.0
+    elif ang < 0.0: sign = -1.0
+    else:           sign =  0.0
+    ang = abs(ang) * 3600.0
+    f_sec = ang % 60.0
+    ang /= 60.0
+    i_min = int(ang % 60.0)
+    ang /= 60.0
+    i_deg = int(ang)
+    return (sign, i_deg, i_min, f_sec)
+# TODO: test this, in case I am dumb
+
+
+####################################################################################################
+
+
 class Gemini2Command(ABC):
     # IMPLEMENTED AT THE PROTOCOL-SPECIFIC SUBCLASS LEVEL (LX200, Native, etc)
     # purpose: takes info from the command-specific subclass and turns it into a raw cmd string with
@@ -539,6 +557,11 @@ G2_SERVO_DUTY_MIN = -100
 G2_SERVO_DUTY_MAX =  100
 def parse_servo_duty(string): return parse_int_bounds(string, G2_SERVO_DUTY_MIN, G2_SERVO_DUTY_MAX)
 
+# response for SetObjectRA and SetObjectDec
+class G2Valid(Enum):
+    INVALID = '0'
+    VALID   = '1'
+
 # limits for signed 32-bit integer parameters
 SINT32_MIN = -((1 << 31) - 0)
 SINT32_MAX =  ((1 << 31) - 1)
@@ -615,7 +638,19 @@ class G2Cmd_Echo(Gemini2Command_LX200):
     def response(self):  return G2Rsp_Echo(self)
 class G2Rsp_Echo(Gemini2Response_LX200): pass
 
-# ...
+class G2Cmd_AlignToObject(Gemini2Command_LX200):
+    def lx200_str(self): return 'Cm'
+    def response(self):  return G2Rsp_AlignToObject(self)
+class G2Rsp_AlignToObject(Gemini2Response_LX200):
+    def interpret(self):
+        assert self.get_raw() != 'No object!'
+
+class G2Cmd_SyncToObject(Gemini2Command_LX200):
+    def lx200_str(self): return 'CM'
+    def response(self):  return G2Rsp_SyncToObject(self)
+class G2Rsp_SyncToObject(Gemini2Response_LX200):
+    def interpret(self):
+        assert self.get_raw() != 'No object!'
 
 
 ### Focus Control Commands
@@ -645,7 +680,12 @@ class G2Rsp_Echo(Gemini2Response_LX200): pass
 
 ### Object/Observing/Output Commands
 
-# ...
+class G2Cmd_SetObjectName(Gemini2Command_LX200):
+    def __init__(self, name):
+        assert name != ''
+        assert '#' not in name
+        self._name = name
+    def lx200_str(self): return 'ON{:s}'.format(self._name)
 
 
 ### Precession and Refraction Commands
@@ -682,7 +722,28 @@ class G2Cmd_SetDblPrecision(Gemini2Command_LX200_NoReply):
 
 ### Set Commands
 
-# ...
+class G2Cmd_SetObjectRA(Gemini2Command_LX200):
+    def __init__(self, ra):
+        assert ra >= 0.0 and ra < 360.0
+        _, self._deg, self._min, self._sec = ang_to_degminsec(ra)
+    def lx200_str(self): return 'Sr{:02d}:{:02d}:{:02d}'.format(self._deg, self._min, int(self._sec))
+    def response(self):  return G2Rsp_SetObjectRA(self)
+class G2Rsp_SetObjectRA(Gemini2Response_LX200):
+    def interpret(self):
+        validity = G2Valid(self.get_raw())  # raises ValueError if the response field value isn't in the enum
+        assert validity == G2Valid.VALID
+
+class G2Cmd_SetObjectDec(Gemini2Command_LX200):
+    def __init__(self, dec):
+        assert dec >= -90.0 and dec <= 90.0
+        sign, self._deg, self._min, self._sec = ang_to_degminsec(dec)
+        self._signchar = '+' if sign >= 0.0 else '-'
+    def lx200_str(self): return 'Sd{:s}{:02d}:{:02d}:{:02d}'.format(self._signchar, self._deg, self._min, int(self._sec))
+    def response(self):  return G2Rsp_SetObjectDec(self)
+class G2Rsp_SetObjectDec(Gemini2Response_LX200):
+    def interpret(self):
+        validity = G2Valid(self.get_raw())  # raises ValueError if the response field value isn't in the enum
+        assert validity == G2Valid.VALID
 
 
 ### Site Selection Commands
