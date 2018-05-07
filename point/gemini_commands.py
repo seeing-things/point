@@ -141,6 +141,10 @@ def ang_to_degminsec(ang):
     return (sign, i_deg, i_min, f_sec)
 # TODO: test this, in case I am dumb
 
+# returns tuple: (int:sign[-1|0|+1], int:hour, int:min, float:sec)
+def ang_to_hourminsec(ang):
+    return ang_to_degminsec(ang * 24.0 / 360.0)
+
 
 ####################################################################################################
 
@@ -724,8 +728,8 @@ class G2Cmd_SetDblPrecision(Gemini2Command_LX200_NoReply):
 class G2Cmd_SetObjectRA(Gemini2Command_LX200):
     def __init__(self, ra):
         assert ra >= 0.0 and ra < 360.0
-        _, self._deg, self._min, self._sec = ang_to_degminsec(ra)
-    def lx200_str(self): return 'Sr{:02d}:{:02d}:{:02d}'.format(self._deg, self._min, int(self._sec))
+        _, self._hour, self._min, self._sec = ang_to_hourminsec(ra)
+    def lx200_str(self): return 'Sr{:02d}:{:02d}:{:02d}'.format(self._hour, self._min, int(self._sec))
     def response(self):  return G2Rsp_SetObjectRA(self)
 class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
     def fixed_len(self): return 1
@@ -745,6 +749,7 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
     def interpret(self):
         validity = G2Valid(self.get_raw())  # raises ValueError if the response field value isn't in the enum
         assert validity == G2Valid.VALID
+        # NOTE: only objects which are currently above the horizon are considered valid
 
 
 ### Site Selection Commands
