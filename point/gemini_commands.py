@@ -680,7 +680,7 @@ class G2Rsp_SyncToObject(Gemini2Response_LX200):
 
 ### Object/Observing/Output Commands
 
-class G2Cmd_SetObjectName(Gemini2Command_LX200):
+class G2Cmd_SetObjectName(Gemini2Command_LX200_NoReply):
     def __init__(self, name):
         assert name != ''
         assert '#' not in name
