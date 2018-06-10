@@ -565,6 +565,12 @@ class G2Valid(Enum):
     INVALID = '0'
     VALID   = '1'
 
+# parameter for RA_StartStop_Set
+# parameter for DEC_StartStop_Set
+class G2Stopped(Enum):
+    STOPPED     = 0
+    NOT_STOPPED = 1
+
 # limits for signed 32-bit integer parameters
 SINT32_MIN = -((1 << 31) - 0)
 SINT32_MAX =  ((1 << 31) - 1)
@@ -768,7 +774,64 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
 ##    def native_params(self): return '{:d}'.format(self._val)
 #    def response(self):      return None # TODO!
 
+### Undocumented Commands
+
+class G2CmdBase_Divisor_Set(Gemini2Command_Native_Set):
+    def __init__(self, div):
+        if not isinstance(div, int):
+            raise self.ParameterTypeError('int')
+        # clamp divisor into the allowable range
+        if div < self._div_min(): div = self._div_min()
+        if div > self._div_max(): div = self._div_max()
+        self._div = div
+    def native_params(self): return self._div
+    def _div_min(self): return SINT32_MIN
+    def _div_max(self): return SINT32_MAX
+class G2Cmd_RA_Divisor_Set(G2CmdBase_Divisor_Set):
+    def native_id(self): return 451
+class G2Cmd_DEC_Divisor_Set(G2CmdBase_Divisor_Set):
+    def native_id(self): return 452
+
+class G2CmdBase_StartStop_Set(Gemini2Command_Native_Set):
+    def __init__(self, val):
+        if not isinstance(val, G2Stopped):
+            raise self.ParameterTypeError('G2Stopped')
+        self._val = val
+    def native_params(self): return '{:b}'.format(self._val.value)
+class G2Cmd_RA_StartStop_Set(G2CmdBase_StartStop_Set):
+    def native_id(self): return 453
+class G2Cmd_DEC_StartStop_Set(G2CmdBase_StartStop_Set):
+    def native_id(self): return 454
+
+# TODO: implement GET cmds 451-454
+
+
 """
+class G2Cmd_Undoc451_Get(Gemini2Command_Native_Get):
+    def id(self): return 451
+    def response(self): G2Rsp_Undoc451_Get()
+class G2Rsp_Undoc451_Get(Gemini2Response_Native):
+    # TODO
+    pass
+
+class G2Cmd_Undoc451_Set(Gemini2Command_Native_Set):
+    def __init__(self, divisor):
+        self._divisor = divisor
+    def id(self): return 451
+    def param(self): return '{:+d}'.format(self._divisor)
+    def response(self): G2Rsp_Undoc451_Set()
+class G2Rsp_Undoc451_Set(Gemini2Response_Native):
+    # TODO
+    pass
+"""
+
+# TODO: 452
+# TODO: 453
+# TODO: 454
+
+
+"""
+
 HIGH PRIORITY COMMANDS TO IMPLEMENT
 ===================================
 macro 0x05 (ENQ)

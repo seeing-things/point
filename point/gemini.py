@@ -397,21 +397,21 @@ class Gemini2(object):
 
     ### Undocumented Commands
 
-    def undoc_set_ra_divisor(self, div):
-        self.exec_cmd(G2Cmd_Undoc_RA_Divisor_Set(div))
+    def set_ra_divisor(self, div):
+        self.exec_cmd(G2Cmd_RA_Divisor_Set(div))
 
-    def undoc_set_dec_divisor(self, div):
-        self.exec_cmd(G2Cmd_Undoc_DEC_Divisor_Set(div))
+    def set_dec_divisor(self, div):
+        self.exec_cmd(G2Cmd_DEC_Divisor_Set(div))
 
-    def undoc_ra_start_movement(self):
-        self.exec_cmd(G2Cmd_Undoc_RA_StartStop_Set(G2Stopped.NOT_STOPPED))
-    def undoc_ra_stop_movement(self):
-        self.exec_cmd(G2Cmd_Undoc_RA_StartStop_Set(G2Stopped.STOPPED))
+    def ra_start_movement(self):
+        self.exec_cmd(G2Cmd_RA_StartStop_Set(G2Stopped.NOT_STOPPED))
+    def ra_stop_movement(self):
+        self.exec_cmd(G2Cmd_RA_StartStop_Set(G2Stopped.STOPPED))
 
-    def undoc_dec_start_movement(self):
-        self.exec_cmd(G2Cmd_Undoc_DEC_StartStop_Set(G2Stopped.NOT_STOPPED))
-    def undoc_dec_stop_movement(self):
-        self.exec_cmd(G2Cmd_Undoc_DEC_StartStop_Set(G2Stopped.STOPPED))
+    def dec_start_movement(self):
+        self.exec_cmd(G2Cmd_DEC_StartStop_Set(G2Stopped.NOT_STOPPED))
+    def dec_stop_movement(self):
+        self.exec_cmd(G2Cmd_DEC_StartStop_Set(G2Stopped.STOPPED))
 
 
 
@@ -472,18 +472,17 @@ class Gemini2(object):
             rate: Slew rate in degrees per second. Positive values move east,
                 toward increasing right ascension.
         """
-        # print('slew_ra: rate = ' + str(rate))
         if rate != 0.0:
             # the divisor is negated here to reverse the direction
             div = -int(12e6 / (6400.0 * rate))
         else:
             div = 0
 
-        self.undoc_set_ra_divisor(div)
+        self.set_ra_divisor(div)
         #if div != 0:
-        #    self.undoc_ra_start_movement()
+        #    self.ra_start_movement()
         #else:
-        #    self.undoc_ra_stop_movement()
+        #    self.ra_stop_movement()
 
     def slew_dec(self, rate):
         """Variable rate slew in the declination axis.
@@ -497,14 +496,13 @@ class Gemini2(object):
                 Positive values move toward decreasing declination when the
                 mount is east of the meridian.
         """
-        # print('slew_dec: rate = ' + str(rate))
         if rate != 0.0:
             div = int(12e6 / (6400.0 * rate))
         else:
             div = 0
 
-        self.undoc_set_dec_divisor(div)
+        self.set_dec_divisor(div)
         #if div != 0:
-        #    self.undoc_dec_start_movement()
+        #    self.dec_start_movement()
         #else:
-        #    self.undoc_dec_stop_movement()
+        #    self.dec_stop_movement()
