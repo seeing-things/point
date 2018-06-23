@@ -12,6 +12,19 @@ __all__ = ['Gemini2']
 # TODO: Restore "good" documentation to the classes and functions and stuff
 
 
+def clamp(val, limit):
+    """Limit value to symmetric range.
+
+    Args:
+        val: Value to be adjusted.
+        limit: Absolute value of return value will not be greater than this.
+
+    Returns:
+        The input value limited to the range [-limit,+limit].
+    """
+    return max(min(limit, val), -limit)
+
+
 class Gemini2(object):
     """Implements serial and UDP command interfaces for Gemini 2.
 
@@ -32,23 +45,36 @@ class Gemini2(object):
     class ReadTimeoutException(Exception):
         """Raised when read from Gemini times out"""
 
-    def __init__(self, backend):
+    def __init__(self, backend, accel_limit=2.0):
         """Constructs a Gemini2 object.
 
         Args:
             backend: A Gemini2Backend object. This can be a Gemini2BackendSerial
                 instance (if using USB serial) or a Gemini2BackendUDP instance
                 (if using UDP datagrams).
+            accel_limit: Acceleration limit in degrees per second squared. This
+                is enforced when using high-level commands such as slew() and
+                stop_motion(). Low-level commands that set the divisors do not
+                respect acceleration limits.
         """
         self._backend = backend
+        self._accel_limit = accel_limit
         self.set_double_precision()
+
+        # TODO: Read current slew rates from Gemini rather than assuming that they are zero
+        # Slew rates are cached along with the times of last command to enforce acceleration
+        # limits
+        last_cmd_time = time.time()
+        self._cached_slew_rate = {
+            'ra': 0.0,
+            'ra_last_cmd_time': last_cmd_time,
+            'dec': 0.0,
+            'dec_last_cmd_time': last_cmd_time,
+        }
 
     def __del__(self):
         try:
-            self.slew_ra (0.0)
-        except: pass
-        try:
-            self.slew_dec(0.0)
+            self.stop_motion()
         except: pass
 
     def exec_cmd(self, cmd):
@@ -462,47 +488,69 @@ class Gemini2(object):
             self.set_object_name(name)
         self.set_object_dec(dec)
 
-    def slew_ra(self, rate):
+    def slew(self, axis, rate):
         """Variable rate slew in the right ascension / hour angle axis.
 
-        This slew command allows changes to the slew rate on the fly, in
-        contrast to move commands which do not.
+        This slew command allows changes to the slew rate on the fly, in contrast to move commands
+        which do not. This command enforces rate limits and acceleration limits if those limits
+        are enabled.
 
         Args:
-            rate: Slew rate in degrees per second. Positive values move east,
-                toward increasing right ascension.
+            rate: Slew rate in degrees per second. Positive values move east, toward increasing
+                right ascension.
+
+        Returns:
+            The actual slew rate set. This may differ from the requested rate due to quantization
+                error, slew rate limit enforcement, or slew rate acceleration enforcement.
         """
+
+        assert axis in ['ra', 'dec']
+
+        limits_exceeded = False
+
+        # enforce acceleration limit if limit is enabled
+        if self._accel_limit is not None:
+            rate_change = rate - self._cached_slew_rate[axis]
+            update_period = time.time() - self._cached_slew_rate[axis + '_last_cmd_time']
+            if abs(rate_change) / update_period > self._accel_limit:
+                limits_exceeded = True
+                clamped_rate_change = clamp(rate_change, self._accel_limit * update_period)
+                rate = self._cached_slew_rate[axis + '_last_cmd_time'] + clamped_rate_change
+
         if rate != 0.0:
             # the divisor is negated here to reverse the direction
             div = -int(12e6 / (6400.0 * rate))
         else:
             div = 0
 
-        self.set_ra_divisor(div)
+        if axis == 'ra':
+            self.set_ra_divisor(div)
+        else:
+            self.set_dec_divisor(div)
         #if div != 0:
         #    self.ra_start_movement()
         #else:
         #    self.ra_stop_movement()
 
-    def slew_dec(self, rate):
-        """Variable rate slew in the declination axis.
-
-        This slew command allows changes to the slew rate on the fly, in
-        contrast to move commands which do not.
-
-        Args:
-            rate: Slew rate in degrees per second. Positive values move toward
-                increasing declination when the mount is west of the meridian.
-                Positive values move toward decreasing declination when the
-                mount is east of the meridian.
-        """
-        if rate != 0.0:
-            div = int(12e6 / (6400.0 * rate))
+        # re-compute rate from divisor so that quantization error is accounted for
+        if div != 0:
+            actual_rate = 12e6 / (6400.0 * div)
         else:
-            div = 0
+            actual_rate = 0.0
 
-        self.set_dec_divisor(div)
-        #if div != 0:
-        #    self.dec_start_movement()
-        #else:
-        #    self.dec_stop_movement()
+        self._cached_slew_rate[axis] = actual_rate
+        self._cached_slew_rate[axis + '_last_cmd_time'] = time.time()
+
+        return (actual_rate, limits_exceeded)
+
+    def stop_motion(self):
+        """Stops motion on both axes.
+
+        Stops motion on both axes. Blocks until slew rates have reached zero, which may take some
+        time depending on the slew rates at the time this is invoked and acceleration limits.
+        """
+        while True:
+            (actual_rate_ra, limits_exceeded) = self.slew('ra', 0.0)
+            (actual_rate_dec, limits_exceeded) = self.slew('dec', 0.0)
+            if actual_rate_ra == 0.0 and actual_rate_dec == 0.0:
+                return
