@@ -45,19 +45,33 @@ class Gemini2(object):
     class ReadTimeoutException(Exception):
         """Raised when read from Gemini times out"""
 
-    def __init__(self, backend, accel_limit=2.0):
+    def __init__(self, backend, rate_limit=3.0, rate_step_limit=0.25, accel_limit=10.0):
         """Constructs a Gemini2 object.
+
+        Note on slew rate and acceleration limts: Limits are enforced when
+        using high-level commands such as slew() and stop_motion().
+        Low-level commands that set the divisors do not respect limits.
+        Acceleration and slew step size limits also depend on memory of
+        the most recent change to the rates which is cached in this object.
+        If the rates are changed by low-level commands or by means other than
+        calls to slew() or stop_motion() these limits will not function as
+        intended.
 
         Args:
             backend: A Gemini2Backend object. This can be a Gemini2BackendSerial
                 instance (if using USB serial) or a Gemini2BackendUDP instance
                 (if using UDP datagrams).
-            accel_limit: Acceleration limit in degrees per second squared. This
-                is enforced when using high-level commands such as slew() and
-                stop_motion(). Low-level commands that set the divisors do not
-                respect acceleration limits.
+            max_rate: Maximum allowed slew rate in degrees per second. May be
+                set to None to disable enforcement (not recommended).
+            rate_step_limit: Maximum allowed change in slew rate per call to
+                slew() in degrees per second. May be set to None to disable
+                enforcement (not recommended).
+            accel_limit: Acceleration limit in degrees per second squared. May
+                be set to None to disable enforcement (not recommended).
         """
         self._backend = backend
+        self._rate_limit = rate_limit
+        self._rate_step_limit = rate_step_limit
         self._accel_limit = accel_limit
         self.set_double_precision()
 
@@ -508,6 +522,12 @@ class Gemini2(object):
 
         limits_exceeded = False
 
+        # enforce slew rate limit if limit is enabled
+        if self._rate_limit is not None:
+            if abs(rate) > self._rate_limit:
+                limits_exceeded = True
+                rate = clamp(rate, self._rate_limit)
+
         # enforce acceleration limit if limit is enabled
         if self._accel_limit is not None:
             rate_change = rate - self._cached_slew_rate[axis]
@@ -515,22 +535,26 @@ class Gemini2(object):
             if abs(rate_change) / update_period > self._accel_limit:
                 limits_exceeded = True
                 clamped_rate_change = clamp(rate_change, self._accel_limit * update_period)
-                rate = self._cached_slew_rate[axis + '_last_cmd_time'] + clamped_rate_change
+                rate = self._cached_slew_rate[axis] + clamped_rate_change
+
+        # enforce rate step limit if limit is enabled
+        if self._rate_step_limit is not None:
+            rate_change = rate - self._cached_slew_rate[axis]
+            if abs(rate_change) > self._rate_step_limit:
+                limits_exceeded = True
+                clamped_rate_change = clamp(rate_change, self._rate_step_limit)
+                rate = self._cached_slew_rate[axis] + clamped_rate_change
 
         if rate != 0.0:
-            # the divisor is negated here to reverse the direction
-            div = -int(12e6 / (6400.0 * rate))
+            div = int(12e6 / (6400.0 * rate))
         else:
             div = 0
 
         if axis == 'ra':
-            self.set_ra_divisor(div)
+            # the divisor is negated here to reverse the direction
+            self.set_ra_divisor(-div)
         else:
             self.set_dec_divisor(div)
-        #if div != 0:
-        #    self.ra_start_movement()
-        #else:
-        #    self.ra_stop_movement()
 
         # re-compute rate from divisor so that quantization error is accounted for
         if div != 0:
