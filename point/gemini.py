@@ -88,8 +88,13 @@ class Gemini2(object):
 
     def __del__(self):
         try:
+            # May get an exception on the first attempt because the backend may have been
+            # interrupted in the middle of a transaction, e.g., when the user exits the program
+            # with CTRL-C. This leaves the backend in an inconsistent state. Try at least once more
+            # before giving up.
             self.stop_motion()
-        except: pass
+        except: # FIXME: Only handle exceptions raised by gemini_backend
+            self.stop_motion()
 
     def exec_cmd(self, cmd):
         return self._backend.execute_one_command(cmd)
