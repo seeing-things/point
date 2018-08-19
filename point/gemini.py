@@ -556,8 +556,22 @@ class Gemini2(object):
             div = 0
 
         if axis == 'ra':
-            # the divisor is negated here to reverse the direction
-            self.set_ra_divisor(-div)
+
+            # Must use the start and stop movement commands on the RA axis because achieving zero
+            # motion when slew() is called repeatedly with a rate of zero can't be accomplished
+            # using set_ra_divisor alone.
+            if div == 0 and self._cached_slew_rate[axis] != 0.0:
+                self.ra_stop_movement()
+            elif div != 0 and self._cached_slew_rate[axis] == 0.0:
+                self.ra_start_movement()
+
+            # Only set the RA divisor to non-zero values. Setting the RA divisor to 0 will cause
+            # that axis to advance by exactly one servo step per command which is not the desired
+            # action.
+            if div != 0:
+                # the divisor is negated here to reverse the direction
+                self.set_ra_divisor(-div)
+
         else:
             self.set_dec_divisor(div)
 
