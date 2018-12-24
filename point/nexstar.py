@@ -1,8 +1,7 @@
-import serial
-import io
 import datetime
 import time
 import calendar
+import serial
 
 
 __all__ = ['NexStar']
@@ -10,7 +9,7 @@ __all__ = ['NexStar']
 
 # Reference for NexStar commands:
 # http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
-class NexStar(object):
+class NexStar:
 
     # The constructor argument is a string giving the serial device connected to the
     # NexStar hand controller. For example, '/dev/ttyUSB0'.
@@ -38,7 +37,7 @@ class NexStar(object):
     # giving the number of characters expected in the response, excluding the
     # the terminating '#' character. The response received from the hand
     # controller is validated and returned, excluding the termination character.
-    def _send_command(self, command, response_len = 0):
+    def _send_command(self, command, response_len=0):
         self.serial.write(command)
         response = self.serial.read(response_len + 1)
         assert response[-1:] == b'#', 'Command failed'
@@ -47,13 +46,15 @@ class NexStar(object):
     # Helper function to convert precise angular values in command responses
     # to degrees. See NexStar command reference for details. Return value
     # will be in range [0,360).
-    def _precise_to_degrees(self, string):
+    @staticmethod
+    def _precise_to_degrees(string):
         return int(string, 16) / 2.**32 * 360.
 
     # Helper function to convert degrees to precise angular values for commands.
     # There are no restrictions on the range of the input. Both positive and
     # negative angles are supported.
-    def _degrees_to_precise(self, degrees):
+    @staticmethod
+    def _degrees_to_precise(degrees):
         return b'%08X' % round((degrees % 360.) / 360. * 2.**32)
 
     # Generic get position helper function. Expects the precise version of
@@ -114,7 +115,7 @@ class NexStar(object):
     # Sets the tracking mode, 0-3, as a integer. See list in comments for
     # get_tracking_mode.
     def set_tracking_mode(self, mode):
-        assert mode in [0,1,2,3]
+        assert mode in range(0, 4)
         command = b'T' + bytes([mode])
         self._send_command(command)
 
@@ -149,7 +150,7 @@ class NexStar(object):
     # where 0 is stop and +/-9 is the maximum slew rate.
     def slew_fixed(self, axis, rate):
         assert axis in ['az', 'alt']
-        assert (rate >= -9) and (rate <= 9), 'fixed slew rate out of range'
+        assert -9 <= rate <= 9, 'fixed slew rate out of range'
         negative_rate = (rate < 0)
         axis_char = 17 if axis != 'az'  else 16
         sign_char = 37 if negative_rate else 36
@@ -174,14 +175,14 @@ class NexStar(object):
         lat_sec = response[2]
         lat_north = (response[3] == 0)
         lat = lat_deg + lat_min / 60.0 + lat_sec / 3600.0
-        if lat_north == False:
+        if not lat_north:
             lat = -lat
         lon_deg = response[4]
         lon_min = response[5]
         lon_sec = response[6]
         lon_east = (response[7] == 0)
         lon = lon_deg + lon_min / 60.0 + lon_sec / 3600.0
-        if lon_east == False:
+        if not lon_east:
             lon = -lon
         return (lat, lon)
 
