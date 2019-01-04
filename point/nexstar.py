@@ -11,15 +11,16 @@ __all__ = ['NexStar']
 # http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 class NexStar:
 
+    class ResponseException(Exception):
+        """Raised on bad command responses from NexStar."""
+
+    class ReadTimeoutException(Exception):
+        """Raised when read from NexStar times out."""
+
     # The constructor argument is a string giving the serial device connected to the
     # NexStar hand controller. For example, '/dev/ttyUSB0'.
-    def __init__(self, device):
-        self.serial = serial.Serial(device, baudrate=9600, timeout=1)
-        self._flush_read_buffer()
-
-    def _flush_read_buffer(self):
-        garbage_bytes = self.serial.in_waiting
-        self.serial.read(garbage_bytes)
+    def __init__(self, device, read_timeout=1.0):
+        self.serial = serial.Serial(device, baudrate=9600, timeout=read_timeout)
 
     # stop any active slewing on destruct
     def __del__(self):
@@ -27,21 +28,55 @@ class NexStar:
         # Wait for any commands to complete and flush the read buffer before
         # proceeding.
         time.sleep(0.1)
-        self._flush_read_buffer()
         self.cancel_goto()
         self.slew_fixed('az', 0)
         self.slew_fixed('alt', 0)
 
-    # Send a command to the hand controller and get a response. The command
-    # argument gives the ASCII command to send. The response_len is an integer
-    # giving the number of characters expected in the response, excluding the
-    # the terminating '#' character. The response received from the hand
-    # controller is validated and returned, excluding the termination character.
-    def _send_command(self, command, response_len=0):
+    def _send_command(self, command, response_len=None):
+        """Sends a command to the NexStar hand controller and reads back the response.
+
+        Args:
+            command: A byte array containing the ASCII command to send.
+            response_len: An integer giving the expected length of the response to this command,
+                not counting the terminating '#' character. If set, a ResponseException will be
+                raised if the actual response string does not have this length. If None, no length
+                validation is performed.
+
+        Returns:
+            A byte array containing the response from the hand controller, excluding the
+            termination character.
+
+        Raises:
+            ReadTimeoutException: When a timeout occurs during the attempt to read from the serial
+                device.
+            ResponseException: When the response length does not match the value of the
+                response_len argument.
+        """
+
+        # eliminate any stale data sitting in the read buffer
+        self.serial.read(self.serial.in_waiting)
+
         self.serial.write(command)
-        response = self.serial.read(response_len + 1)
-        assert response[-1:] == b'#', 'Command failed'
-        return response[0:-1]
+
+        # all valid mount responses are terminated with a '#' character
+        response = self.serial.read_until(terminator=b'#')
+
+        # if the byte array does not end with '#' the read timed out
+        if response[-1:] != b'#':
+            raise NexStar.ReadTimeoutException()
+
+        # strip off the terminator
+        response = response[:-1]
+
+        # trim away any leading bytes from previous responses
+        response = response.rsplit(b'#', 1)[-1]
+
+        # validate length of response if a length was provided
+        if response_len is not None:
+            if len(response) != response_len:
+                raise NexStar.ResponseException()
+
+        return response
 
     # Helper function to convert precise angular values in command responses
     # to degrees. See NexStar command reference for details. Return value
