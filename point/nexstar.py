@@ -18,7 +18,7 @@ class NexStar:
         self._flush_read_buffer()
 
     def _flush_read_buffer(self):
-        garbage_bytes = self.serial.inWaiting()
+        garbage_bytes = self.serial.in_waiting
         self.serial.read(garbage_bytes)
 
     # stop any active slewing on destruct
