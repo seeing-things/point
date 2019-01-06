@@ -60,7 +60,7 @@ class NexStar:
 
         # strip off the '#' terminator
         response = response[:-1]
-        assert b'#' not in response
+        assert b'#' not in response, 'Unexpected terminator found in response'
 
         if response_len is not None:
             if len(response) != response_len:
