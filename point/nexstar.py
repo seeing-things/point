@@ -1,5 +1,12 @@
+"""NexStar hand controller command API.
+
+Contains a single class NexStar which provides an API for the NexStar hand controller command set.
+The serial command protocol is documented here:
+http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
+"""
+
+
 import datetime
-import time
 import calendar
 import serial
 
@@ -7,9 +14,8 @@ import serial
 __all__ = ['NexStar']
 
 
-# Reference for NexStar commands:
-# http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 class NexStar:
+    """Implements the serial commands used by NexStar telescope mount hand controllers."""
 
     class ResponseException(Exception):
         """Raised on bad command responses from NexStar."""
@@ -17,12 +23,21 @@ class NexStar:
     class ReadTimeoutException(Exception):
         """Raised when read from NexStar times out."""
 
-    # The constructor argument is a string giving the serial device connected to the
-    # NexStar hand controller. For example, '/dev/ttyUSB0'.
     def __init__(self, device, read_timeout=3.5):
+        """Constructs a NexStar object.
+
+        Args:
+            device (str): The path to the serial device connected to the NexStar hand controller.
+                For example, '/dev/ttyUSB0'.
+            read_timeout (float): Timeout in seconds for reads on the serial device.
+        """
         self.serial = serial.Serial(device, baudrate=9600, timeout=read_timeout)
 
     def __del__(self):
+        """Destructs a NexStar object.
+
+        Any GOTO in progress will be cancelled and any active slewing will be stopped.
+        """
         self.cancel_goto()
         self.slew_fixed('az', 0)
         self.slew_fixed('alt', 0)
@@ -70,132 +85,215 @@ class NexStar:
 
         return response
 
-    # Helper function to convert precise angular values in command responses
-    # to degrees. See NexStar command reference for details. Return value
-    # will be in range [0,360).
     @staticmethod
-    def _precise_to_degrees(string):
-        return int(string, 16) / 2.**32 * 360.
+    def _precise_to_degrees(precise):
+        """Decodes angle from a bytearray in NexStar precise format to a float in degrees.
 
-    # Helper function to convert degrees to precise angular values for commands.
-    # There are no restrictions on the range of the input. Both positive and
-    # negative angles are supported.
+        Args:
+            precise (bytearray): An angle encoded as a string in the precise angle format. See the
+                NexStar command reference for details on this encoding.
+
+        Returns:
+            float: Angle in degrees. Value will be in range [0,360).
+        """
+        return int(precise, 16) / 2.**32 * 360.
+
     @staticmethod
     def _degrees_to_precise(degrees):
+        """Encodes angular values as a bytearray in NexStar precise angle format.
+
+        Args:
+            degrees (float): The angle to encode in degrees. No restrictions are placed on the
+                range of values allowed. Both positive and negative angles are supported.
+
+        Returns:
+            bytes: The angle encoded in NexStar precise format. See the NexStar command reference
+                for details on this encoding.
+        """
         return b'%08X' % round((degrees % 360.) / 360. * 2.**32)
 
-    # Generic get position helper function. Expects the precise version of
-    # these commands.
-    def _get_position(self, command):
-        assert command in [b'e', b'z']
-        response = self._send_command(command, 17)
+    def _get_position(self, command_char):
+        """Generic "get position" command helper function.
+
+        Args:
+            command_char (bytearray): A single character, either 'e' for RA/DEC or 'z' for
+                AZ/ALT. Only the precise version of these commands are supported, therefore 'E'
+                and 'Z' are not allowed.
+
+        Returns:
+            tuple of floats: A pair of angles in degrees: (ra, dec) or (az, alt) depending on the
+                command_char argument.
+        """
+        assert command_char in [b'e', b'z']
+        response = self._send_command(command_char, 17)
         return (self._precise_to_degrees(response[0: 8]),
                 self._precise_to_degrees(response[9:17]))
 
-    # Returns a tuple with current (azimuth, altitude) in degrees
-    # Azimuth range is [0,360) and altitude range is [-180,180)
     def get_azalt(self):
+        """Get current mount position in horizontal (azimuth/altitude) coordinates.
+
+        Note that if an alignment has not been performed the horizontal coordinates reported by the
+        hand controller will be relative to where the mount was pointed when powered on.
+
+        Returns:
+            tuple of floats: A pair of angles (azimuth, altitude) in degrees. Azimuth range is
+                [0,360) and altitude range is [-180,180).
+        """
+        # pylint: disable=invalid-name
         (az, alt) = self._get_position(b'z')
         # adjust range of altitude from [0,360) to [-180,180)
         alt = (alt + 180.0) % 360.0 - 180.0
         return (az, alt)
 
-    # Returns a tuple with current (right ascension, declination) in degrees
     def get_radec(self):
+        """Get current mount position in equatorial (right ascension/declination) coordinates.
+
+        Note that the equatorial position reported by the hand controller will not be meaningful
+        until an alignment has been performed.
+
+        Returns:
+            tuple of floats: A pair of angles (right ascension, declination) in degrees.
+        """
         return self._get_position(b'e')
 
-    # Generic goto helper function. Expects the precise version of these
-    # commands.
-    def _goto_command(self, char, values):
-        assert char in [b'b', b'r', b's']
-        command = (char
+    def _goto(self, command_char, values):
+        """Generic "goto" command helper function.
+
+        Args:
+            command_char (bytearray): A single character; 'b' for RA/DEC goto, 'r' for AZ/ALT goto,
+                or 's' for sync. Only the precise version of these commands are supported,
+                therefore 'B', 'R', and 'S' are not allowed.
+            values (tuple of floats): A pair of angles in degrees: (ra, dec) or (az, alt) depending
+                on the command_char argument.
+
+        """
+        assert command_char in [b'b', b'r', b's']
+        command = (command_char
                    + self._degrees_to_precise(values[0])
                    + b','
                    + self._degrees_to_precise(values[1]))
         self._send_command(command)
 
-    # Commands the telescope to slew to the provided azimuth/altitude
-    # coordinates in degrees
     def goto_azalt(self, az, alt):
-        self._goto_command(b'b', (az, alt))
+        """Go to a position in horizontal (azimuth/altitude) coordinates.
 
-    # Commands the telescope to slew to the provided right ascension and
-    # declination coordinates in degrees
+        Args:
+            az (float): Azimuth angle in degrees.
+            alt (float): Altitude angle in degrees.
+        """
+        # pylint: disable=invalid-name
+        self._goto(b'b', (az, alt))
+
     def goto_radec(self, ra, dec):
-        self._goto_command(b'r', (ra, dec))
+        """Go to a position in equatorial (right ascension/declination) coordinates.
 
-    # Informs the hand controller that the telescope is currently pointed at
-    # the provided right ascension and declination coordinates to improve
-    # accuracy of future goto commands. See command reference for details.
+        Args:
+            ra (float): Right ascension angle in degrees.
+            dec (float): Declination angle in degrees.
+        """
+        # pylint: disable=invalid-name
+        self._goto(b'r', (ra, dec))
+
     def sync(self, ra, dec):
-        self._goto_command(b's', (ra, dec))
+        """Sync mount to a position in equatorial (right ascension/declination) coordinates.
 
-    # Returns the current tracking mode as an integer:
-    # 0 = Off
-    # 1 = Alt/Az
-    # 2 = EQ North
-    # 3 = EQ South
+        This command informs the hand controller that the mount is currently pointed at the
+        provided coordinates to improve accuracy of future nearby goto commands. See NexStar
+        command reference for details.
+
+        Args:
+            ra (float): Right ascension angle in degrees.
+            dec (float): Declination angle in degrees.
+        """
+        # pylint: disable=invalid-name
+        self._goto(b's', (ra, dec))
+
     def get_tracking_mode(self):
+        """Get the current tracking mode.
+
+        Returns:
+            int: The current tracking mode where
+                0 = Off
+                1 = Alt/Az
+                2 = EQ North
+                3 = EQ South
+        """
         response = self._send_command(b't', 1)
         return response[0]
 
-    # Sets the tracking mode, 0-3, as a integer. See list in comments for
-    # get_tracking_mode.
     def set_tracking_mode(self, mode):
+        """Set the tracking mode.
+
+        This command has no effect before an alignment is performed. Prior to alignment, the
+        tracking mode will always be 0 (off).
+
+        Args:
+            mode (int): The mode to set. Must be one of the following values:
+                0 = Off
+                1 = Alt/Az
+                2 = EQ North
+                3 = EQ South
+        """
         assert mode in range(0, 4)
         command = b'T' + bytes([mode])
         self._send_command(command)
 
-    # Variable-rate slew command. Variable-rate simply means that
-    # the angular rate can be specified precisely in arcseconds per second,
-    # in contrast to the small number of fixed rates available on the hand-
-    # controller. The axis argument may be set to 'az' or 'alt'. Rate
-    # has units of arcseconds per second and may be positive or negative.
-    # Max advertised rate is 3 deg/s, max commandable rate is 16319
-    # arcseconds per second or ~4.5 deg/s.
     def slew_var(self, axis, rate):
-        assert axis in ['az', 'alt']
-        negative_rate = (rate < 0)
-        axis_char = 17 if axis != 'az'  else 16
-        sign_char =  7 if negative_rate else  6
-        track_rate_high = (int(abs(rate)) * 4) // 256
-        track_rate_low  = (int(abs(rate)) * 4)  % 256
+        """Variable-rate slew command.
+
+        Variable-rate simply means that the angular rate can be specified precisely in arcseconds
+        per second, in contrast to the nine fixed rates available on the hand controller keypad.
+
+        Args:
+            axis (str): The mount axis to command. Use 'az' or 'alt' for AZ/ALT mounts. Use 'ra' or
+                'dec' for equatorial mounts.
+            rate (float): The desired slew rate in arcseconds per second. Value may be positive or
+                negative. The maximum rate may be mount dependent. The maximum advertised rate for
+                the NexStar 130SLT is 3 deg/s. However the maximum commandable rate for the same
+                model was found by experimentation to be 16319 arcseconds per second or ~4.5 deg/s.
+        """
+        assert axis in ['az', 'alt', 'ra', 'dec']
         command = b'P' + bytes([
-            3,
-            axis_char,
-            sign_char,
-            track_rate_high,
-            track_rate_low,
+            3,  # variable rate slew
+            16 if axis in ['az', 'ra']  else 17,  # axis
+            7 if rate < 0 else 6,  # sign of rate
+            (int(abs(rate)) * 4) // 256,  # upper byte of rate magnitude
+            (int(abs(rate)) * 4) % 256,  # lower byte of rate magnitude
             0,
             0,
         ])
         self._send_command(command)
 
-    # Fixed-rate slew command. Fixed-rate means that only the nine
-    # rates supported on the hand controller are available. The axis argument
-    # may be set to 'az' or 'alt'. Rate is an integer from -9 to +9,
-    # where 0 is stop and +/-9 is the maximum slew rate.
     def slew_fixed(self, axis, rate):
+        """Fixed-rate slew command.
+
+        Fixed-rate means that only the nine rates supported on the hand controller keypad are
+        available.
+
+        Args:
+            axis (str): The mount axis to command. Use 'az' or 'alt' for AZ/ALT mounts. Use 'ra' or
+                'dec' for equatorial mounts.
+            rate (int): The desired slew rate from -9 to +9. Use value 0 to stop motion.
+        """
         assert axis in ['az', 'alt']
         assert -9 <= rate <= 9, 'fixed slew rate out of range'
-        negative_rate = (rate < 0)
-        axis_char = 17 if axis != 'az'  else 16
-        sign_char = 37 if negative_rate else 36
-        rate_char = int(abs(rate))
         command = b'P' + bytes([
-            2,
-            axis_char,
-            sign_char,
-            rate_char,
+            2,  # fixed rate slew
+            16 if axis in ['az', 'ra'] else 17,  # axis
+            37 if rate < 0 else 36,  # sign of rate
+            int(abs(rate)),  # rate magnitude
             0,
             0,
             0,
         ])
         self._send_command(command)
 
-    # Returns the location of the telescope as a tuple of (latitude,
-    # longitude) in signed degrees format.
     def get_location(self):
+        """Get the mount location on Earth in geographic (latitude/longitude) coordinates.
+
+        Returns:
+            tuple of floats: A pair of angles (latitude, longitude) in signed degrees format.
+        """
         response = self._send_command(b'w', 8)
         lat_deg = response[0]
         lat_min = response[1]
@@ -213,9 +311,13 @@ class NexStar:
             lon = -lon
         return (lat, lon)
 
-    # Set the location of the telescope with latitude and longitude coordinates
-    # in signed degrees format.
     def set_location(self, lat, lon):
+        """Set the mount location on Earth in geographic (latitude/longitude) coordinates.
+
+        Args:
+            lat (float): Latitude in signed degrees format.
+            lon (float): Longitude in signed degrees format.
+        """
         lat_deg = int(abs(lat))
         lat_min = int((abs(lat) - lat_deg) * 60.0)
         lat_sec = int((abs(lat) - lat_deg - lat_min / 60.0) * 3600.0)
@@ -234,12 +336,18 @@ class NexStar:
         ])
         self._send_command(command)
 
-    # Returns the telescope current time in seconds since the Unix epoch
-    # (1 Jan 1970). Timezone information and daylight savings time are not
-    # currently supported.
     def get_time(self):
+        """Get the current time from the hand controller in seconds since the Unix epoch.
+
+        Timezone information and daylight savings time are not currently supported. If the hand
+        controller is set to a non-zero UTC offset or if daylight savings time is enabled the
+        Unix timestamp returned by this function will most likely be incorrect.
+
+        Returns:
+            int: A Unix timestamp (seconds since 1 Jan 1970 in UTC minus leap seconds)
+        """
         response = self._send_command(b'h', 8)
-        t = datetime.datetime(
+        hand_controller_time = datetime.datetime(
             response[5] + 2000, # year
             response[3],        # month
             response[4],        # day
@@ -248,39 +356,85 @@ class NexStar:
             response[2],        # second
             0,                  # microseconds
         )
-        return calendar.timegm(t.timetuple())
+        return calendar.timegm(hand_controller_time.timetuple())
 
-    # Set the time on the telescope. The timestamp argument is given in seconds
-    # since the Unix epoch (1 Jan 1970). Timezone information and daylight
-    # savings time are not currently supported, so the GMT/UTC offset will be
-    # set to zero and Daylight Savings will be disabled (Standard Time).
-    def set_time(self, timestamp):
-        t = datetime.datetime.utcfromtimestamp(timestamp)
+    def set_time(self, timestamp=None):
+        """Set the time on the hand controller.
+
+        Timezone information and daylight savings time are not currently supported. When this
+        method is called, the UTC offset will be set to 0 and daylight savings time will be
+        disabled. This effectively means that the hand controller clock will be set to UTC.
+
+        Args:
+            timesamp (int): A Unix timestamp (seconds since 1 Jan 1970 in UTC minus leap seconds).
+                If omitted, the time will be obtained from the clock of the machine running this
+                Python program.
+        """
+        if timestamp is not None:
+            utc_time = datetime.datetime.utcfromtimestamp(timestamp)
+        else:
+            utc_time = datetime.datetime.utcnow()
+
         command = b'H' + bytes([
-            t.hour,
-            t.minute,
-            t.second,
-            t.month,
-            t.day,
-            t.year - 2000,
-            0,
-            0,
+            utc_time.hour,
+            utc_time.minute,
+            utc_time.second,
+            utc_time.month,
+            utc_time.day,
+            utc_time.year - 2000,
+            0,  # UTC offset
+            0,  # disable daylight savings
         ])
         self._send_command(command)
 
-    # Returns version as a floating point value.
     def get_version(self):
+        """Get hand controller firmware version.
+
+        Warning: This method contains a known bug. When the minor part of the version is greater
+        than 9 the return value will be incorrect. See https://github.com/bgottula/point/issues/18.
+
+        Returns:
+            float: Hand controller firmware version number.
+        """
         response = self._send_command(b'V', 2)
         return response[0] + response[1] / 10.0
 
-    # Returns model as an integer. See NexStar command reference for decoding
-    # table.
     def get_model(self):
+        """Get mount model.
+
+        Returns:
+            int: Mount model encoded as an integer. According to V1.2 of the protocol documentation
+                this can be decoded using the following table:
+                1 = GPS Series
+                3 = i-Series
+                4 = i-Series SE
+                5 = CGE
+                6 = Advanced GT
+                7 = SLT
+                9 = CPC
+                10 = GT
+                11 = 4/5 SE
+                12 = 6/8 SE
+        """
         response = self._send_command(b'm', 1)
         return response[0]
 
-    # Returns device version as a floating point value.
     def get_device_version(self, dev):
+        """Get device firmware version.
+
+        Warning: This method contains a known bug. When the minor part of the version is greater
+        than 9 the return value will be incorrect. See https://github.com/bgottula/point/issues/18.
+
+        Args:
+            dev (int): A value from the following table (from protocol documentation):
+                16 = AZM/RA Motor
+                17 = ALT/DEC Motor
+                176 = GPS Unit
+                178 = RTC (CGE only)
+
+        Returns:
+            float: Device firmware version number.
+        """
         command = b'P' + bytes([
             1,
             dev,
@@ -293,28 +447,50 @@ class NexStar:
         response = self._send_command(command, 2)
         return response[0] + response[1] / 10.0
 
-    # Sends a character to the telescope hand controller, which the hand
-    # controller will echo back in response. The argument to the function
-    # is an integer in the range 0 to 255. If the command is successful, the
-    # return value will match the argument.
-    def echo(self, x):
-        command = b'K' + bytes([x])
+    def echo(self, echo_val):
+        """Send an echo command.
+
+        This command can be used to test the integrity of the serial interface. A single byte
+        value is sent with the command that the hand controller will echo back.
+
+        Args:
+            echo_val (int): An integer in the range [0,255] to be sent.
+
+        Returns:
+            int: The value in the response from the hand controller. This should match the value of
+            the argument x.
+        """
+        command = b'K' + bytes([echo_val])
         response = self._send_command(command, 1)
-        assert response[0] == x, 'echo failed to return sent character'
+        assert response[0] == echo_val, 'echo failed to return sent character'
         return response[0]
 
-    # Returns True if alignment has been performed, False otherwise.
     def alignment_complete(self):
+        """Checks if alignment has been completed.
+
+        Returns:
+            bool: True if mount is aligned, False otherwise.
+        """
         response = self._send_command(b'J', 1)
         return response[0] == 1
 
-    # Returns True if the telescope is slewing to execute a goto command. Note
-    # that this will return False if the telescope is slewing for any other
-    # reason.
     def goto_in_progress(self):
+        """Check if a GOTO command is in progress.
+
+        Note that this cannot be used to detect if the mount is in motion because the return value
+        will only be True when the mount is performing a GOTO operation. If the mount is slewing
+        for any other reason, such as when slew_var or slew_fixed are called, this method will
+        return False.
+
+        Returns:
+            bool: True if a GOTO is in progress, False otherwise.
+        """
         response = self._send_command(b'L', 1)
         return response == b'1'
 
-    # Cancels a goto command that is in progress.
     def cancel_goto(self):
+        """Cancels any GOTO operation that is in progress.
+
+        Has no effect when no GOTO operation is in progress.
+        """
         self._send_command(b'M')
