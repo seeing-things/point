@@ -19,7 +19,7 @@ class NexStar:
 
     # The constructor argument is a string giving the serial device connected to the
     # NexStar hand controller. For example, '/dev/ttyUSB0'.
-    def __init__(self, device, read_timeout=1.0):
+    def __init__(self, device, read_timeout=3.5):
         self.serial = serial.Serial(device, baudrate=9600, timeout=read_timeout)
 
     def __del__(self):
@@ -48,28 +48,25 @@ class NexStar:
                 response_len argument.
         """
 
-        # eliminate any stale data sitting in the read buffer
+        # Eliminate any stale data sitting in the read buffer which could be left over from prior
+        # command responses.
         self.serial.read(self.serial.in_waiting)
 
         self.serial.write(command)
 
-        # all valid mount responses are terminated with a '#' character
         response = self.serial.read_until(terminator=b'#')
-
-        # if the byte array does not end with '#' the read timed out
         if response[-1:] != b'#':
             raise NexStar.ReadTimeoutException()
 
-        # strip off the terminator
+        # strip off the '#' terminator
         response = response[:-1]
+        assert b'#' not in response
 
-        # trim away any leading bytes from previous responses
-        response = response.rsplit(b'#', 1)[-1]
-
-        # validate length of response if a length was provided
         if response_len is not None:
             if len(response) != response_len:
-                raise NexStar.ResponseException()
+                raise NexStar.ResponseException(
+                    'Expected response length {:d} but got {:d} instead.'.format(response_len,
+                                                                                 len(response)))
 
         return response
 
