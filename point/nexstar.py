@@ -22,12 +22,7 @@ class NexStar:
     def __init__(self, device, read_timeout=1.0):
         self.serial = serial.Serial(device, baudrate=9600, timeout=read_timeout)
 
-    # stop any active slewing on destruct
     def __del__(self):
-        # Destructor could be called when a command was already in progress.
-        # Wait for any commands to complete and flush the read buffer before
-        # proceeding.
-        time.sleep(0.1)
         self.cancel_goto()
         self.slew_fixed('az', 0)
         self.slew_fixed('alt', 0)
