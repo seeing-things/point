@@ -465,15 +465,21 @@ class NexStar:
         value is sent with the command that the hand controller will echo back.
 
         Args:
-            echo_val (int): An integer in the range [0,255] to be sent.
+            echo_val (int): An integer in range(0, 256) to be sent.
 
         Returns:
-            int: The value in the response from the hand controller. This should match the value of
-            the argument x.
+            int: The value in the response from the hand controller, which will always be the same
+            as echo_val. If the response does not match echo_val an exception is raised.
+
+        Raises:
+            ValueError: When echo_val is not in range(0, 256).
+            ResponseException: When the response from the hand controller does not contain
+                echo_val.
         """
         command = b'K' + bytes([echo_val])
         response = self._send_command(command, 1)
-        assert response[0] == echo_val, 'echo failed to return sent character'
+        if response[0] != echo_val:
+            raise NexStar.ResponseException(response, 'Echo response does not match what was sent')
         return response[0]
 
     def alignment_complete(self):
