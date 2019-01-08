@@ -401,14 +401,11 @@ class NexStar:
     def get_version(self):
         """Get hand controller firmware version.
 
-        Warning: This method contains a known bug. When the minor part of the version is greater
-        than 9 the return value will be incorrect. See https://github.com/bgottula/point/issues/18.
-
         Returns:
-            float: Hand controller firmware version number.
+            tuple of ints: Firmware version number as (major, minor) tuple.
         """
         response = self._send_command(b'V', 2)
-        return response[0] + response[1] / 10.0
+        return (response[0], response[1])
 
     def get_model(self):
         """Get mount model.
@@ -433,9 +430,6 @@ class NexStar:
     def get_device_version(self, dev):
         """Get device firmware version.
 
-        Warning: This method contains a known bug. When the minor part of the version is greater
-        than 9 the return value will be incorrect. See https://github.com/bgottula/point/issues/18.
-
         Args:
             dev (int): A value from the following table (from protocol documentation):
                 16 = AZM/RA Motor
@@ -444,7 +438,13 @@ class NexStar:
                 178 = RTC (CGE only)
 
         Returns:
-            float: Device firmware version number.
+            tuple of ints: Device firmware version number as (major, minor) tuple.
+
+        Raises:
+            ResponseException: When the device does not respond. In this case the response length
+                will be 3 bytes rather than the usual 2, but the actual content of the response is
+                garbage. See the Developer Notes section of the serial protocol documentation for
+                details.
         """
         command = b'P' + bytes([
             1,
@@ -456,7 +456,7 @@ class NexStar:
             2,
         ])
         response = self._send_command(command, 2)
-        return response[0] + response[1] / 10.0
+        return (response[0], response[1])
 
     def echo(self, echo_val):
         """Send an echo command.
