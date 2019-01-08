@@ -18,7 +18,17 @@ class NexStar:
     """Implements the serial commands used by NexStar telescope mount hand controllers."""
 
     class ResponseException(Exception):
-        """Raised on bad command responses from NexStar."""
+        """Raised on bad command responses from NexStar.
+
+        Attributes:
+            response (bytes): The byte array which was received but was deemed invalid. This can be
+                inspected to see what the (possibly partial) bad response looks like. Do not expect
+                this buffer to necessarily match the expected response length; it could be shorter
+                or longer. Note also that the terminating '#' character is not included.
+        """
+        def __init__(self, response, *args, **kwargs):
+            self.response = response
+            super().__init__(*args, **kwargs)
 
     class ReadTimeoutException(Exception):
         """Raised when read from NexStar times out."""
@@ -80,6 +90,7 @@ class NexStar:
         if response_len is not None:
             if len(response) != response_len:
                 raise NexStar.ResponseException(
+                    response,
                     'Expected response length {:d} but got {:d} instead.'.format(response_len,
                                                                                  len(response)))
 
