@@ -3,6 +3,7 @@ python:
   - "3.5"
   - "3.6"
 install:
+  - pip install .
   - pip install pylint
 script:
   - pylint point/nexstar.py
