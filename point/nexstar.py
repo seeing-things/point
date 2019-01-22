@@ -407,12 +407,12 @@ class NexStar:
         """
         command = b'P' + bytes([
             1,
-            176, # GPS Device ID?
-            55, # Device register?
+            176,  # GPS Device ID?
+            55,  # Device register?
             0,
             0,
             0,
-            1, # GPS response bytes?
+            1,  # GPS response bytes?
         ])
 
         response = self._send_command(command, 1)
@@ -425,11 +425,11 @@ class NexStar:
         Returns:
             tuple of floats: A pair of angles (latitude, longitude) in signed degrees format.
         """
-        [x,y,z] = self._send_command(b'P' + bytes([1,176,1,0,0,0,3]), 3)
-        lat = ((x*65536)+(y*256)+z)/(2**24)*360
+        [x_var, y_var, z_var] = self._send_command(b'P' + bytes([1, 176, 1, 0, 0, 0, 3]), 3)
+        lat = ((x_var * 65536) + (y_var * 256) + z_var) / (2 ** 24) * 360
 
-        [x,y,z] = self._send_command(b'P' + bytes([1,176,2,0,0,0,3]), 3)
-        lon = ((x*65536)+(y*256)+z)/(2**24)*360
+        [x_var, y_var, z_var] = self._send_command(b'P' + bytes([1, 176, 2, 0, 0, 0, 3]), 3)
+        lon = ((x_var * 65536) + (y_var * 256) + z_var) / (2 ** 24) * 360
 
         return (lat, lon)
 
@@ -439,21 +439,21 @@ class NexStar:
         Returns:
             int: A Unix timestamp (seconds since 1 Jan 1970 in UTC minus leap seconds)
         """
-        [x,y] = self._send_command(b'P' + bytes([1,176,4,0,0,0,2]), 2)
-        yr = (x * 256) + y
+        [x_var, y_var] = self._send_command(b'P' + bytes([1, 176, 4, 0, 0, 0, 2]), 2)
+        year = (x_var * 256) + y_var
 
-        [mo,dy] = self._send_command(b'P' + bytes([1,176,3,0,0,0,2]), 2)
+        [month, day] = self._send_command(b'P' + bytes([1, 176, 3, 0, 0, 0, 2]), 2)
 
-        [hr,mn,sc] = self._send_command(b'P' + bytes([1,176,51,0,0,0,3]), 3)
+        [hour, minute, second] = self._send_command(b'P' + bytes([1, 176, 51, 0, 0, 0, 3]), 3)
 
         hand_controller_time = datetime.datetime(
-            yr,        # year
-            mo,        # month
-            dy,        # day
-            hr,        # hour
-            mn,        # minute
-            sc,        # second
-            0,         # microseconds
+            year,  # year
+            month,  # month
+            day,  # day
+            hour,  # hour
+            minute,  # minute
+            second,  # second
+            0,  # microseconds
         )
 
         return calendar.timegm(hand_controller_time.timetuple())
