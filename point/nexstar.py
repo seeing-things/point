@@ -13,7 +13,7 @@ import serial
 
 __all__ = ['NexStar']
 
-
+# pylint: disable=too-many-public-methods
 class NexStar:
     """Implements the serial commands used by NexStar telescope mount hand controllers."""
 
@@ -377,9 +377,10 @@ class NexStar:
         disabled. This effectively means that the hand controller clock will be set to UTC.
 
         Args:
-            timesamp (int): A Unix timestamp (seconds since 1 Jan 1970 in UTC minus leap seconds).
+            timestamp (int): A Unix timestamp (seconds since 1 Jan 1970 in UTC minus leap seconds).
                 If omitted, the time will be obtained from the clock of the machine running this
                 Python program.
+                :param timestamp:
         """
         if timestamp is not None:
             utc_time = datetime.datetime.utcfromtimestamp(timestamp)
@@ -397,6 +398,65 @@ class NexStar:
             0,  # disable daylight savings
         ])
         self._send_command(command)
+
+    def get_gps_lock_status(self):
+        """Get the status of GPS lock
+
+        Returns:
+            bool: True if GPS is linked (locked?), false if GPS is not linked (no lock?)
+        """
+        command = b'P' + bytes([
+            1,
+            176,  # GPS Device ID?
+            55,  # Device register?
+            0,
+            0,
+            0,
+            1,  # GPS response bytes?
+        ])
+
+        response = self._send_command(command, 1)
+
+        return bool(response[0])
+
+    def get_gps_location(self):
+        """Get the GPS mount location on Earth in geographic (latitude/longitude) coordinates.
+
+        Returns:
+            tuple of floats: A pair of angles (latitude, longitude) in signed degrees format.
+        """
+        [x_var, y_var, z_var] = self._send_command(b'P' + bytes([1, 176, 1, 0, 0, 0, 3]), 3)
+        lat = ((x_var * 65536) + (y_var * 256) + z_var) / (2 ** 24) * 360
+
+        [x_var, y_var, z_var] = self._send_command(b'P' + bytes([1, 176, 2, 0, 0, 0, 3]), 3)
+        lon = ((x_var * 65536) + (y_var * 256) + z_var) / (2 ** 24) * 360
+
+        return (lat, lon)
+
+    def get_gps_time(self):
+        """Get the current GPS time from the hand controller in seconds since the Unix epoch.
+
+        Returns:
+            int: A Unix timestamp (seconds since 1 Jan 1970 in UTC minus leap seconds)
+        """
+        [x_var, y_var] = self._send_command(b'P' + bytes([1, 176, 4, 0, 0, 0, 2]), 2)
+        year = (x_var * 256) + y_var
+
+        [month, day] = self._send_command(b'P' + bytes([1, 176, 3, 0, 0, 0, 2]), 2)
+
+        [hour, minute, second] = self._send_command(b'P' + bytes([1, 176, 51, 0, 0, 0, 3]), 3)
+
+        hand_controller_time = datetime.datetime(
+            year,  # year
+            month,  # month
+            day,  # day
+            hour,  # hour
+            minute,  # minute
+            second,  # second
+            0,  # microseconds
+        )
+
+        return calendar.timegm(hand_controller_time.timetuple())
 
     def get_version(self):
         """Get hand controller firmware version.
