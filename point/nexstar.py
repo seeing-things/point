@@ -380,7 +380,6 @@ class NexStar:
             timestamp (int): A Unix timestamp (seconds since 1 Jan 1970 in UTC minus leap seconds).
                 If omitted, the time will be obtained from the clock of the machine running this
                 Python program.
-                :param timestamp:
         """
         if timestamp is not None:
             utc_time = datetime.datetime.utcfromtimestamp(timestamp)
@@ -420,21 +419,21 @@ class NexStar:
         return bool(response[0])
 
     def get_gps_location(self):
-        """Get the GPS mount location on Earth in geographic (latitude/longitude) coordinates.
+        """Get the GPS position in geographic (latitude/longitude) coordinates.
 
         Returns:
             tuple of floats: A pair of angles (latitude, longitude) in signed degrees format.
         """
         [x_var, y_var, z_var] = self._send_command(b'P' + bytes([1, 176, 1, 0, 0, 0, 3]), 3)
-        lat = ((x_var * 65536) + (y_var * 256) + z_var) / (2 ** 24) * 360
+        lat = ((x_var * 65536) + (y_var * 256) + z_var) / (2. ** 24) * 360
 
         [x_var, y_var, z_var] = self._send_command(b'P' + bytes([1, 176, 2, 0, 0, 0, 3]), 3)
-        lon = ((x_var * 65536) + (y_var * 256) + z_var) / (2 ** 24) * 360
+        lon = ((x_var * 65536) + (y_var * 256) + z_var) / (2. ** 24) * 360
 
         return (lat, lon)
 
     def get_gps_time(self):
-        """Get the current GPS time from the hand controller in seconds since the Unix epoch.
+        """Get the current GPS time in seconds since the Unix epoch.
 
         Returns:
             int: A Unix timestamp (seconds since 1 Jan 1970 in UTC minus leap seconds)
