@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/bgottula/point.svg?branch=master)](https://travis-ci.com/bgottula/point)
+[![Build Status](https://travis-ci.com/seeing-things/point.svg?branch=master)](https://travis-ci.com/seeing-things/point)
 
 Point implements interfaces to telescope mounts. It currently supports two mount types: Celestron NexStar and Losmandy Gemini 2. This package requires Python 3. Python 2 is not supported.
 
