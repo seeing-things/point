@@ -87,14 +87,7 @@ class Gemini2(object):
         }
 
     def __del__(self):
-        try:
-            # May get an exception on the first attempt because the backend may have been
-            # interrupted in the middle of a transaction, e.g., when the user exits the program
-            # with CTRL-C. This leaves the backend in an inconsistent state. Try at least once more
-            # before giving up.
-            self.stop_motion()
-        except: # FIXME: Only handle exceptions raised by gemini_backend
-            self.stop_motion()
+        self.stop_motion()
 
     def exec_cmd(self, cmd):
         return self._backend.execute_one_command(cmd)
@@ -599,7 +592,19 @@ class Gemini2(object):
 
         Stops motion on both axes. Blocks until slew rates have reached zero, which may take some
         time depending on the slew rates at the time this is invoked and acceleration limits.
+
+        This method will also attempt to recover if previous commands were interrupted mid-
+        execution, leaving the backend in an inconsistent state. This is desired for this method
+        specifically because it is often invoked in response to catching KeyboardInterrupt in the 
+        main thread.
         """
+
+        # Throw-away command to clear out any inconsistent state in the backend
+        try:
+            self.echo('a')
+        except Exception:
+            pass
+
         while True:
             (actual_rate_ra, limits_exceeded) = self.slew('ra', 0.0)
             (actual_rate_dec, limits_exceeded) = self.slew('dec', 0.0)
