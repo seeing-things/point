@@ -527,6 +527,16 @@ class Gemini2(object):
 
         limits_exceeded = False
 
+        # Important to cache the time at the start of this method, because we need to compute the
+        # elapsed time at the start so we can use it in the limit calculations that follow. If
+        # the time is cached at the end of this method the elapsed time calculation will not
+        # include the time taken for this method body to execute, which becomes significant if this
+        # method is called in a tight loop. This mistake was made previously and led to very slow 
+        # acceleration/deceleration in some circumstances such as when stop_motion() is used.
+        current_time = time.time()
+        time_since_last = current_time - self._cached_slew_rate[axis + '_last_cmd_time']
+        self._cached_slew_rate[axis + '_last_cmd_time'] = current_time
+
         # enforce slew rate limit if limit is enabled
         if self._rate_limit is not None:
             if abs(rate) > self._rate_limit:
@@ -536,10 +546,9 @@ class Gemini2(object):
         # enforce acceleration limit if limit is enabled
         if self._accel_limit is not None:
             rate_change = rate - self._cached_slew_rate[axis]
-            update_period = time.time() - self._cached_slew_rate[axis + '_last_cmd_time']
-            if abs(rate_change) / update_period > self._accel_limit:
+            if abs(rate_change) / time_since_last > self._accel_limit:
                 limits_exceeded = True
-                clamped_rate_change = clamp(rate_change, self._accel_limit * update_period)
+                clamped_rate_change = clamp(rate_change, self._accel_limit * time_since_last)
                 rate = self._cached_slew_rate[axis] + clamped_rate_change
 
         # enforce rate step limit if limit is enabled
@@ -582,7 +591,6 @@ class Gemini2(object):
             actual_rate = 0.0
 
         self._cached_slew_rate[axis] = actual_rate
-        self._cached_slew_rate[axis + '_last_cmd_time'] = time.time()
 
         return (actual_rate, limits_exceeded)
 
