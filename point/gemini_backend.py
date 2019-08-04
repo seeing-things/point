@@ -4,14 +4,10 @@ import socket
 import struct
 import string
 import point.gemini_commands
+from point.gemini_exceptions import *
 
 
 class Gemini2Backend(ABC):
-    class NotImplementedYetError(Exception): pass
-    class NotSupportedError(Exception):      pass
-    class ReadTimeoutError(Exception):       pass
-    class ResponseError(Exception):          pass
-
     @abstractmethod
     def execute_one_command(self, cmd):
         pass
@@ -37,7 +33,7 @@ class Gemini2BackendSerial(Gemini2Backend):
 
     def execute_one_command(self, cmd):
         if not cmd.valid_for_serial():
-            raise self.NotSupportedError('command {:s} is not supported on the serial backend'.format(cmd.__class__.__name__))
+            raise G2BackendCommandNotSupportedError('command {:s} is not supported on the serial backend'.format(cmd.__class__.__name__))
 
         buf_cmd = cmd.encode()
 
@@ -52,13 +48,13 @@ class Gemini2BackendSerial(Gemini2Backend):
 
         len_consumed = resp.decode(buf_resp)
         if len_consumed != len(buf_resp):
-            raise self.ResponseError('response was decoded, but only {:d} of the {:d} available characters were consumed'.format(len_consumed, len(buf_resp)))
+            raise G2BackendResponseError('response was decoded, but only {:d} of the {:d} available characters were consumed'.format(len_consumed, len(buf_resp)))
         return resp
 
     # TODO: maybe emulate this functionality by calling execute_one_command for each cmd one at a
     # time, and then bundle up the responses and return them...?
     def execute_multiple_commands(self, *cmds):
-        raise self.NotSupportedError('executing multiple commands at once is unsupported via the serial backend')
+        raise G2BackendFeatureNotSupportedError('executing multiple commands at once is unsupported via the serial backend')
 
     def _wait_for_response(self, resp):
         if resp.decoder_type() == self.DecoderType.FIXED_LENGTH:
@@ -75,7 +71,7 @@ class Gemini2BackendSerial(Gemini2Backend):
         while len(buf_resp) < decoder.fixed_len():
             buf_resp += self._get_char()
             if buf_resp[-1] == '#':
-                raise self.ResponseError('received \'#\' terminator as part of a fixed-length response')
+                raise G2BackendResponseError('received \'#\' terminator as part of a fixed-length response')
         return buf_resp
 
     def _wait_for_response_hash_terminated(self, decoder):
@@ -92,13 +88,13 @@ class Gemini2BackendSerial(Gemini2Backend):
             if buf_resp[-1] == ';':
                 field_count += 1
             elif buf_resp[-1] == '#':
-                raise self.ResponseError('received \'#\' terminator as part of a semicolon-delimited response')
+                raise G2BackendResponseError('received \'#\' terminator as part of a semicolon-delimited response')
         return buf_resp
 
     def _get_char(self):
         char = self._serial.read(1).decode(self._str_encoding())
         if not char:
-            raise self.ReadTimeoutError()
+            raise G2BackendReadTimeoutError()
         return char
 
 
@@ -139,11 +135,11 @@ class Gemini2BackendUDP(Gemini2Backend):
 
     def execute_one_command(self, cmd):
         if not cmd.valid_for_udp():
-            raise self.NotSupportedError('command {:s} is not supported on the UDP backend'.format(cmd.__class__.__name__))
+            raise G2BackendCommandNotSupportedError('command {:s} is not supported on the UDP backend'.format(cmd.__class__.__name__))
 
         cmd_str = cmd.encode()
         if len(cmd_str) > self.UDP_CMD_STR_LEN_MAX:
-            raise ValueError('command string is too long: {:d} > {:d}'.format(len(cmd_str), self.UDP_CMD_STR_LEN_MAX))
+            raise G2BackendCommandError('command string is too long: {:d} > {:d}'.format(len(cmd_str), self.UDP_CMD_STR_LEN_MAX))
 
         # if we get a response that references an earlier seqnum, it's from an earlier command and
         # we can freely discard and ignore it
@@ -178,7 +174,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                 retry_num = 0
                 while True:
                     if retry_num >= self._retry_limit:
-                        raise self.ReadTimeoutError('gave up after {:d} NACK retry attempts'.format(retry_num))
+                        raise G2BackendReadTimeoutError('gave up after {:d} NACK retry attempts'.format(retry_num))
                     retry_num += 1
                     self._seqnum += 1
                     buf_nack = struct.pack('!IIc', self._seqnum, 0, b'\x15')
@@ -196,9 +192,9 @@ class Gemini2BackendUDP(Gemini2Backend):
                 self._stats['dgram_cmd_rx'] += 1
 
             if len(buf_resp) > self.UDP_RESP_DGRAM_LEN_MAX:
-                raise self.ResponseError('received UDP response datagram larger than max length: {:d} > {:d}'.format(len(buf_resp), self.UDP_RESP_DGRAM_LEN_MAX))
+                raise G2BackendResponseError('received UDP response datagram larger than max length: {:d} > {:d}'.format(len(buf_resp), self.UDP_RESP_DGRAM_LEN_MAX))
             elif len(buf_resp) < self.UDP_RESP_DGRAM_LEN_MIN:
-                raise self.ResponseError('received UDP response datagram smaller than min length: {:d} < {:d}'.format(len(buf_resp), self.UDP_RESP_DGRAM_LEN_MIN))
+                raise G2BackendResponseError('received UDP response datagram smaller than min length: {:d} < {:d}'.format(len(buf_resp), self.UDP_RESP_DGRAM_LEN_MIN))
 
             (seqnum, last_seqnum) = struct.unpack('!II', buf_resp[0:8])
 
@@ -208,7 +204,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                     skip_send = True
                     continue
                 elif seqnum < cmd_seqnum or seqnum > self._seqnum:
-                    raise self.ResponseError('mismatched sequence number in UDP response datagram: {:d} != {:d}'.format(seqnum, self._seqnum))
+                    raise G2BackendResponseError('mismatched sequence number in UDP response datagram: {:d} != {:d}'.format(seqnum, self._seqnum))
 
             if did_retry:
                 if last_seqnum == cmd_seqnum:
@@ -228,35 +224,35 @@ class Gemini2BackendUDP(Gemini2Backend):
 
             num_nulls = buf_resp.count('\x00')
             if num_nulls == 0:
-                raise self.ResponseError('received UDP response buffer of length {:d} containing no NULL terminator'.format(len(buf_resp)))
+                raise G2BackendResponseError('received UDP response buffer of length {:d} containing no NULL terminator'.format(len(buf_resp)))
             elif num_nulls > 1:
-                raise self.ResponseError('received UDP response buffer of length {:d} containing {:d} NULL characters'.format(len(buf_resp), num_nulls))
+                raise G2BackendResponseError('received UDP response buffer of length {:d} containing {:d} NULL characters'.format(len(buf_resp), num_nulls))
             elif buf_resp[-1] != '\x00':
-                raise self.ResponseError('received UDP response buffer of length {:d} with single NULL terminator at non-end index {:d}'.format(len(buf_resp), string.rfind(buf_resp, '\x00')))
+                raise G2BackendResponseError('received UDP response buffer of length {:d} with single NULL terminator at non-end index {:d}'.format(len(buf_resp), string.rfind(buf_resp, '\x00')))
             buf_resp = buf_resp[:-1]
 
             resp = cmd.response()
             if len(buf_resp) == 1 and buf_resp[0] == '\x06':
                 if not resp is None:
-                    raise self.ResponseError('received ACK (no response), but command {:s} expected to receive response {:s}'.format(cmd.__class__.__name__, resp.__class__.__name__))
+                    raise G2BackendResponseError('received ACK (no response), but command {:s} expected to receive response {:s}'.format(cmd.__class__.__name__, resp.__class__.__name__))
             else:
                 if resp is None:
-                    raise self.ResponseError('received a response of some kind, but command {:s} was expecting no response'.format(cmd.__class__.__name__))
+                    raise G2BackendResponseError('received a response of some kind, but command {:s} was expecting no response'.format(cmd.__class__.__name__))
                 len_consumed = resp.decode(buf_resp)
                 if len_consumed != len(buf_resp):
-                    raise self.ResponseError('response was decoded, but only {:d} of the {:d} available characters were consumed'.format(len_consumed, len(buf_resp)))
+                    raise G2BackendResponseError('response was decoded, but only {:d} of the {:d} available characters were consumed'.format(len_consumed, len(buf_resp)))
 
             self._stats['cmd_exec'] += 1
             return resp
 
     def execute_multiple_commands(self, *cmds):
         # TODO: implement this!
-        raise self.NotImplementedYetError('TODO')
+        raise G2BackendFeatureNotImplementedYetError('TODO')
 
     def _synchronously_send_and_recv(self, chars):
         # TODO: use this as the underlying function for the bulk of the common datagram handling
         # stuff in both execute_one_command and execute_multiple_commands
-        raise self.NotImplementedYetError('TODO')
+        raise G2BackendFeatureNotImplementedYetError('TODO')
 
     def get_statistic(self, key):
         return self._stats[key]

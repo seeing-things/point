@@ -3,6 +3,7 @@ import time
 import calendar
 import point.gemini_backend
 from point.gemini_commands import *
+from point.gemini_exceptions import *
 
 
 __all__ = ['Gemini2']
@@ -376,7 +377,7 @@ class Gemini2(object):
 #    def move(self, direction):
 #        """Move in a direction: 'east', 'west', 'north', or 'south'."""
 #        if direction not in ['east', 'west', 'north', 'south']:
-#            raise ValueError('invalid direction for move command')
+#            raise ValueError('invalid direction for move command') # TODO: consider using an exception derived from Gemini2Exception!
 #        self.lx200_cmd('M' + direction[0])
 
     # TODO: reimplement this
