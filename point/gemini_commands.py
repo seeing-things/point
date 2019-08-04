@@ -2,6 +2,7 @@ from abc import *
 import re
 import collections
 import sys
+from point.gemini_exceptions import *
 
 
 if not (sys.version_info[0] == 3 and sys.version_info[1] < 6):
@@ -28,24 +29,24 @@ _re_revisions = re.compile(r'^.{8}$',                                     re.ASC
 
 def parse_int(string):
     match = _re_int.fullmatch(string)
-    if match is None: raise IntegerParseError(string)
+    if match is None: raise G2ResponseIntegerParseError(string)
     return int(match.expand(r'\1\2'))
 
 def parse_int_bounds(string, bound_min, bound_max):
     assert bound_min <= bound_max
     val = parse_int(string)
-    if val < bound_min or val > bound_max: raise IntegerBoundsViolation(val, bound_min, bound_max)
+    if val < bound_min or val > bound_max: raise G2ResponseIntegerBoundsViolation(val, bound_min, bound_max)
     return val
 
 
 def parse_ang_dbl(string):
     match = _re_ang_dbl.fullmatch(string)
-    if match is None: raise AngleParseError(string, 'double')
+    if match is None: raise G2ResponseAngleParseError(string, 'double')
     return float(match.expand(r'\1\2'))
 
 def parse_ang_high(string):
     match = _re_ang_high.fullmatch(string)
-    if match is None: raise AngleParseError(string, 'high')
+    if match is None: raise G2ResponseAngleParseError(string, 'high')
     f_deg = float(match.expand(r'\1\2'))
     f_min = float(match.expand(r'\1\3'))
     f_sec = float(match.expand(r'\1\4'))
@@ -53,7 +54,7 @@ def parse_ang_high(string):
 
 def parse_ang_low(string):
     match = _re_ang_low.fullmatch(string)
-    if match is None: raise AngleParseError(string, 'low')
+    if match is None: raise G2ResponseAngleParseError(string, 'low')
     f_deg = float(match.expand(r'\1\2'))
     f_min = float(match.expand(r'\1\3'))
     return (f_deg + (f_min / 60.0))
@@ -67,17 +68,17 @@ def parse_ang(string, precision):
 
 def parse_time_dbl(string):
     match = _re_time_dbl.fullmatch(string)
-    if match is None: raise TimeParseError(string, 'double')
+    if match is None: raise G2ResponseTimeParseError(string, 'double')
     return float(match.expand(r'\1\2'))
 
 def parse_time_hilo(string):
     match = _re_time_hilo.fullmatch(string)
-    if match is None: raise TimeParseError(string, 'high/low')
+    if match is None: raise G2ResponseTimeParseError(string, 'high/low')
     i_hour = int(match[1])
     i_min  = int(match[2])
     i_sec  = int(match[3])
     # TODO: bounds check on hour field...? and should we even be limiting the hour field to 2 digits in the RE?
-    if i_min >= 60 or i_sec >= 60: raise TimeParseError(string, 'high/low')
+    if i_min >= 60 or i_sec >= 60: raise G2ResponseTimeParseError(string, 'high/low')
     return float((i_hour * 3600) + (i_min * 60) + i_sec)
 
 def parse_time(string, precision):
@@ -88,40 +89,14 @@ def parse_time(string, precision):
 
 def parse_revisions(string):
     match = _re_revisions.fullmatch(string)
-    if match is None: raise RevisionsParseError(string)
+    if match is None: raise G2ResponseRevisionsParseError(string)
     vals = []
     for char in string:
         val = ord(char)
-        if val < 0x30 or val > 0x7E: raise RevisionsParseError(string)
+        if val < 0x30 or val > 0x7E: raise G2ResponseRevisionsParseError(string)
         vals.append(val - 0x30)
     assert len(vals) == 8
     return vals
-
-
-class ParseError(Exception): pass
-
-class IntegerParseError(ParseError):
-    def __init__(self, string):
-        super().__init__('failed to parse \'{:s}\' as integer'.format(string))
-
-class AngleParseError(ParseError):
-    def __init__(self, string, precision):
-        super().__init__('failed to parse \'{:s}\' as angle ({:s} precision)'.format(string, precision))
-
-class TimeParseError(ParseError):
-    def __init__(self, string, precision):
-        super().__init__('failed to parse \'{:s}\' as time ({:s} precision)'.format(string, precision))
-
-class RevisionsParseError(ParseError):
-    def __init__(self, string):
-        super().__init__('failed to parse \'{:s}\' as G2 native command #97 eight-character revisions parameter'.format(string))
-
-
-class BoundsViolation(Exception): pass
-
-class IntegerBoundsViolation(BoundsViolation):
-    def __init__(self, val, bound_min, bound_max):
-        super().__init__('successfully-parsed integer {:d} violates its prescribed bounds: [{:s}, {:s}]'.format(val, bound_min, bound_max))
 
 
 ####################################################################################################
@@ -165,16 +140,6 @@ class Gemini2Command(ABC):
     # return: False if this particular command is not valid for the given backend type
     def valid_for_serial(self): return True
     def valid_for_udp(self):    return True
-
-    # raised when invalid parameters are provided to commands
-    class ParameterError(Exception): pass
-
-    class ParameterTypeError(ParameterError):
-        def __init__(self, *types):
-            if len(types) == 1:
-                super().__init__('command expects 1 parameter with type {:s}'.format(types[0]))
-            else:
-                super().__init__('command expects {:d} parameters with types: {:s}'.format(len(types), ', '.join(types)))
 
 # ==================================================================================================
 
@@ -309,7 +274,7 @@ class Gemini2Response(ABC):
         def decode(self, chars):
             idx = self.fixed_len()
             if len(chars) < idx:
-                raise self.ResponseTooShortError(len(chars), idx)
+                raise G2ResponseTooShortError(len(chars), idx)
             return (chars[:idx], idx)
 
     class HashTerminatedDecoder(Decoder):
@@ -318,7 +283,7 @@ class Gemini2Response(ABC):
         def decode(self, chars):
             idx = chars.find('#')
             if idx == -1:
-                raise self.ResponseMissingTerminatorError(len(chars))
+                raise G2ResponseMissingTerminatorError(len(chars))
             return (chars[:idx], idx + 1)
 
     # SERIOUS ISSUE: the 'revisions' (native #97) field contains chars in the range of 0x30 ~ 0x7E,
@@ -344,7 +309,7 @@ class Gemini2Response(ABC):
         def decode(self, chars):
             fields = chars.split(';', self._num_fields)
             if len(fields) <= self._num_fields:
-                raise self.ResponseTooFewDelimitersError(len(chars), len(fields), self._num_fields)
+                raise G2ResponseTooFewDelimitersError(len(chars), len(fields), self._num_fields)
 #            assert len(fields) == self._num_fields + 1
             fields = fields[:-1]
 #            total_len = (len(fields) + sum(len(field) for field in fields))
@@ -393,27 +358,6 @@ class Gemini2Response(ABC):
     def get(self):
         return self.get_raw()
 
-    # raised when the response cannot be decoded properly for whatever reason
-    class DecodeError(Exception): pass
-
-    # raised when a fixed-length response is presented with fewer characters than it expects
-    class ResponseTooShortError(DecodeError):
-        def __init__(self, buf_len, expected):
-            super().__init__('response too short: length <= {:d}, expected {:d}'.format(buf_len, expected))
-
-    # raised when a hash-terminated response is presented with no '#' character
-    class ResponseMissingTerminatorError(DecodeError):
-        def __init__(self, buf_len):
-            super().__init__('response with length <= {:d} not terminated with a \'#\' character'.format(buf_len))
-
-    # raised when a semicolon-delimited response is presented with fewer semicolons than it expects
-    class ResponseTooFewDelimitersError(DecodeError):
-        def __init__(self, buf_len, actual, expected):
-            super().__init__('response contains too few delimiters: length <= {:d}; {:d} fields, expected {:d}'.format(buf_len, actual, expected))
-
-    # raised when the decoded response cannot be interpreted properly for whatever reason
-    class InterpretationError(Exception): pass
-
 # ==================================================================================================
 
 class Gemini2Response_ACK(Gemini2Response):
@@ -454,16 +398,12 @@ class Gemini2Response_Native(Gemini2Response):
         csum_recv = ord(chars[-1])
         csum_comp = self.command()._compute_checksum(chars[:-1])
         if csum_recv != csum_comp:
-            raise NativeResponseChecksumMismatchError(csum_recv, csum_comp)
+            raise G2ResponseChecksumMismatchError(csum_recv, csum_comp)
         return chars[:-1]
 
 #    def get(self):
 #        # TODO: need to return our post-processed string, not the raw string
 #        pass
-
-    class NativeResponseChecksumMismatchError(Gemini2Response.DecodeError):
-        def __init__(self, actual, expected):
-            super().__init__('checksum mismatch in response to native command: {:02x}, expected {:02x}'.format(actual, expected))
 
 # TODO: implement generic G2-Native response decoding
 
@@ -591,7 +531,7 @@ class G2Rsp_StartupCheck(Gemini2Response_ACK):
 class G2Cmd_SelectStartupMode(Gemini2Command_LX200_NoReply):
     def __init__(self, mode):
         if not isinstance(mode, G2StartupMode):
-            raise self.ParameterTypeError('G2StartupMode')
+            raise G2CommandParameterTypeError('G2StartupMode')
         self._mode = mode
     def lx200_str(self): return 'b{:s}'.format(G2StartupMode[self._mode])
 
@@ -609,29 +549,29 @@ class G2Rsp_MacroENQ(Gemini2Response_Macro):
         # (e.g. angle ranges:  [0,180) or [-90,+90] or [0,360)  etc)
         fields = self.get_raw()
         self._values = dict()
-#        self._values['phys_x']       = parse_int           (fields[ 0])  # raises IntegerParseError on failure
-#        self._values['phys_y']       = parse_int           (fields[ 1])  # raises IntegerParseError on failure
-        self._values['pra']          = parse_int           (fields[ 0])  # raises IntegerParseError on failure
-        self._values['pdec']         = parse_int           (fields[ 1])  # raises IntegerParseError on failure
-        self._values['ra']           = parse_ang_dbl       (fields[ 2])  # raises DblPrecAngleParseError on failure
-        self._values['dec']          = parse_ang_dbl       (fields[ 3])  # raises DblPrecAngleParseError on failure
-        self._values['ha']           = parse_ang_dbl       (fields[ 4])  # raises DblPrecAngleParseError on failure
-        self._values['az']           = parse_ang_dbl       (fields[ 5])  # raises DblPrecAngleParseError on failure
-        self._values['alt']          = parse_ang_dbl       (fields[ 6])  # raises DblPrecAngleParseError on failure
+#        self._values['phys_x']       = parse_int           (fields[ 0])  # raises G2ResponseIntegerParseError on failure
+#        self._values['phys_y']       = parse_int           (fields[ 1])  # raises G2ResponseIntegerParseError on failure
+        self._values['pra']          = parse_int           (fields[ 0])  # raises G2ResponseIntegerParseError on failure
+        self._values['pdec']         = parse_int           (fields[ 1])  # raises G2ResponseIntegerParseError on failure
+        self._values['ra']           = parse_ang_dbl       (fields[ 2])  # raises G2ResponseAngleParseError on failure
+        self._values['dec']          = parse_ang_dbl       (fields[ 3])  # raises G2ResponseAngleParseError on failure
+        self._values['ha']           = parse_ang_dbl       (fields[ 4])  # raises G2ResponseAngleParseError on failure
+        self._values['az']           = parse_ang_dbl       (fields[ 5])  # raises G2ResponseAngleParseError on failure
+        self._values['alt']          = parse_ang_dbl       (fields[ 6])  # raises G2ResponseAngleParseError on failure
         self._values['vel_max']      = G2AxisVelocity      (fields[ 7])  # raises ValueError if the response field value isn't in the enum
         self._values['vel_x']        = G2AxisVelocity      (fields[ 8])  # raises ValueError if the response field value isn't in the enum
         self._values['vel_y']        = G2AxisVelocity      (fields[ 9])  # raises ValueError if the response field value isn't in the enum
         self._values['ha_pos']       = G2AxisPosition      (fields[10])  # raises ValueError if the response field value isn't in the enum
-        self._values['t_sidereal']   = parse_time_dbl      (fields[11])  # raises TimeParseError on failure
+        self._values['t_sidereal']   = parse_time_dbl      (fields[11])  # raises G2ResponseTimeParseError on failure
         self._values['park_state']   = G2ParkStatus    (int(fields[12])) # raises ValueError if the response field value isn't in the enum
         self._values['pec_state']    = G2PECStatus     (int(fields[13])) # raises ValueError if the response field value isn't in the enum
-        self._values['t_wsl']        = parse_time_dbl      (fields[14])  # raises TimeParseError on failure
+        self._values['t_wsl']        = parse_time_dbl      (fields[14])  # raises G2ResponseTimeParseError on failure
         self._values['cmd99_state']  = G2Status        (int(fields[15])) # raises ValueError if the response field value isn't in the enum
-#        self._values['revisions']    = parse_revisions     (fields[16])  # raises RevisionsParseError on failure
-#        self._values['servo_lag_x']  = parse_servo_lag     (fields[17])  # raises IntegerParseError or IntegerBoundsViolation on failure
-#        self._values['servo_lag_y']  = parse_servo_lag     (fields[18])  # raises IntegerParseError or IntegerBoundsViolation on failure
-#        self._values['servo_duty_x'] = parse_servo_duty    (fields[19])  # raises IntegerParseError or IntegerBoundsViolation on failure
-#        self._values['servo_duty_y'] = parse_servo_duty    (fields[20])  # raises IntegerParseError or IntegerBoundsViolation on failure
+#        self._values['revisions']    = parse_revisions     (fields[16])  # raises G2ResponseRevisionsParseError on failure
+#        self._values['servo_lag_x']  = parse_servo_lag     (fields[17])  # raises G2ResponseIntegerParseError or G2ResponseIntegerBoundsViolation on failure
+#        self._values['servo_lag_y']  = parse_servo_lag     (fields[18])  # raises G2ResponseIntegerParseError or G2ResponseIntegerBoundsViolation on failure
+#        self._values['servo_duty_x'] = parse_servo_duty    (fields[19])  # raises G2ResponseIntegerParseError or G2ResponseIntegerBoundsViolation on failure
+#        self._values['servo_duty_y'] = parse_servo_duty    (fields[20])  # raises G2ResponseIntegerParseError or G2ResponseIntegerBoundsViolation on failure
     def get(self): return self._values
 
 
@@ -641,7 +581,7 @@ class G2Cmd_Echo(Gemini2Command_LX200):
     def __init__(self, char):
         assert sys.version_info[0] >= 3 # our string type check below is incompatible with Python 2
         if (not isinstance(char, str)) or (len(char) != 1):
-            raise self.ParameterTypeError('char')
+            raise G2CommandParameterTypeError('char')
         self._char = char
     def lx200_str(self): return 'CE{:s}'.format(self._char)
     def response(self):  return G2Rsp_Echo(self)
@@ -768,7 +708,7 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
 #class G2Cmd_TEST_Native_92_Get(Gemini2Command_Native_Get):
 #    def __init__(self, val):
 #        if not isinstance(val, int):
-#            raise self.ParameterTypeError('int')
+#            raise G2CommandParameterTypeError('int')
 #        self._val = val
 #    def native_id(self):     return 92
 ##    def native_params(self): return '{:d}'.format(self._val)
@@ -779,7 +719,7 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
 class G2CmdBase_Divisor_Set(Gemini2Command_Native_Set):
     def __init__(self, div):
         if not isinstance(div, int):
-            raise self.ParameterTypeError('int')
+            raise G2CommandParameterTypeError('int')
         # clamp divisor into the allowable range
         if div < self._div_min(): div = self._div_min()
         if div > self._div_max(): div = self._div_max()
@@ -795,7 +735,7 @@ class G2Cmd_DEC_Divisor_Set(G2CmdBase_Divisor_Set):
 class G2CmdBase_StartStop_Set(Gemini2Command_Native_Set):
     def __init__(self, val):
         if not isinstance(val, G2Stopped):
-            raise self.ParameterTypeError('G2Stopped')
+            raise G2CommandParameterTypeError('G2Stopped')
         self._val = val
     def native_params(self): return '{:b}'.format(self._val.value)
 class G2Cmd_RA_StartStop_Set(G2CmdBase_StartStop_Set):
