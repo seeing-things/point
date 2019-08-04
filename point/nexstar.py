@@ -119,7 +119,8 @@ class NexStar:
 
         Returns:
             bytes: The angle encoded in NexStar precise format. See the NexStar command reference
-                for details on this encoding.
+            for details on this encoding.
+
         """
         return b'%08X' % round((degrees % 360.) / 360. * 2.**32)
 
@@ -133,7 +134,8 @@ class NexStar:
 
         Returns:
             tuple of floats: A pair of angles in degrees: (ra, dec) or (az, alt) depending on the
-                command_char argument.
+            command_char argument.
+
         """
         assert command_char in [b'e', b'z']
         response = self._send_command(command_char, 17)
@@ -148,7 +150,8 @@ class NexStar:
 
         Returns:
             tuple of floats: A pair of angles (azimuth, altitude) in degrees. Azimuth range is
-                [0,360) and altitude range is [-180,180).
+            [0,360) and altitude range is [-180,180).
+
         """
         # pylint: disable=invalid-name
         (az, alt) = self._get_position(b'z')
@@ -224,10 +227,10 @@ class NexStar:
 
         Returns:
             int: The current tracking mode where
-                0 = Off
-                1 = Alt/Az
-                2 = EQ North
-                3 = EQ South
+            0 = Off
+            1 = Alt/Az
+            2 = EQ North
+            3 = EQ South
         """
         response = self._send_command(b't', 1)
         return response[0]
@@ -471,17 +474,17 @@ class NexStar:
 
         Returns:
             int: Mount model encoded as an integer. According to V1.2 of the protocol documentation
-                this can be decoded using the following table:
-                1 = GPS Series
-                3 = i-Series
-                4 = i-Series SE
-                5 = CGE
-                6 = Advanced GT
-                7 = SLT
-                9 = CPC
-                10 = GT
-                11 = 4/5 SE
-                12 = 6/8 SE
+            this can be decoded using the following table:
+            1 = GPS Series
+            3 = i-Series
+            4 = i-Series SE
+            5 = CGE
+            6 = Advanced GT
+            7 = SLT
+            9 = CPC
+            10 = GT
+            11 = 4/5 SE
+            12 = 6/8 SE
         """
         response = self._send_command(b'm', 1)
         return response[0]
