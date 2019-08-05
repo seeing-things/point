@@ -9,3 +9,4 @@ install:
   - pip install pylint
 script:
   - pylint point/nexstar.py
+  - pylint point/gemini_exceptions.py
