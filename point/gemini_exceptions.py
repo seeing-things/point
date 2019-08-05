@@ -28,17 +28,17 @@ Gemini2Exception
 """
 
 
-class Gemini2Exception(Exception): pass
+class Gemini2Exception(Exception):
     """Base class for ALL exceptions that may be raised by ANY Gemini2 code"""
 
 
-class G2BackendException(Gemini2Exception): pass
+class G2BackendException(Gemini2Exception):
     """Base class for exceptions raised by the Gemini2 serial or UDP backend code"""
 
-class G2CommandException(Gemini2Exception): pass
+class G2CommandException(Gemini2Exception):
     """Base class for exceptions raised when processing Gemini2 commands"""
 
-class G2ResponseException(Gemini2Exception): pass
+class G2ResponseException(Gemini2Exception):
     """Base class for exceptions raised when processing Gemini2 responses"""
 
 
@@ -50,7 +50,7 @@ class G2BackendResponseError(G2BackendException): pass
 class G2BackendReadTimeoutError(G2BackendException): pass
 
 
-class G2CommandParameterError(G2CommandException): pass
+class G2CommandParameterError(G2CommandException):
     """These are raised when a Gemini2 command is created with invalid parameters"""
 
 class G2CommandParameterTypeError(G2CommandParameterError):
@@ -61,7 +61,7 @@ class G2CommandParameterTypeError(G2CommandParameterError):
             super().__init__('command expects {:d} parameters with types: {:s}'.format(len(types), ', '.join(types)))
 
 
-class G2ResponseDecodeError(G2ResponseException): pass
+class G2ResponseDecodeError(G2ResponseException):
     """These are raised when a Gemini2 response cannot be decoded properly"""
 
 class G2ResponseTooShortError(G2ResponseDecodeError):
@@ -82,7 +82,7 @@ class G2ResponseChecksumMismatchError(G2ResponseDecodeError):
         super().__init__('checksum mismatch in response to native command: {:02x}, expected {:02x}'.format(actual, expected))
 
 
-class G2ResponseParseError(G2ResponseException): pass
+class G2ResponseParseError(G2ResponseException):
     """These are raised when a Gemini2 response cannot be parsed properly"""
 
 class G2ResponseIntegerParseError(G2ResponseParseError):
@@ -99,7 +99,7 @@ class G2ResponseRevisionsParseError(G2ResponseParseError):
         super().__init__('failed to parse \'{:s}\' as G2 native command #97 eight-character revisions parameter'.format(string))
 
 
-class G2ResponseBoundsViolation(G2ResponseException): pass
+class G2ResponseBoundsViolation(G2ResponseException):
     """These are raised when a Gemini2 response contains a value which exceeds allowable bounds"""
 
 class G2ResponseIntegerBoundsViolation(G2ResponseBoundsViolation):
@@ -107,5 +107,5 @@ class G2ResponseIntegerBoundsViolation(G2ResponseBoundsViolation):
         super().__init__('successfully-parsed integer {:d} violates its prescribed bounds: [{:s}, {:s}]'.format(val, bound_min, bound_max))
 
 
-class G2ResponseInterpretationFailure(G2ResponseException): pass
+class G2ResponseInterpretationFailure(G2ResponseException):
     """these are raised when a Gemini2 response cannot be interpreted properly"""
