@@ -2,6 +2,7 @@ from abc import *
 import re
 import collections
 import sys
+from curses.ascii import isgraph
 from point.gemini_exceptions import *
 
 
@@ -33,9 +34,11 @@ def parse_int(string):
     return int(match.expand(r'\1\2'))
 
 def parse_int_bounds(string, bound_min, bound_max):
-    assert bound_min <= bound_max
+    if bound_min > bound_max:
+        raise G2ResponseParseError('bound_min {} > bound_max {})'.format(bound_min, bound_max))
     val = parse_int(string)
-    if val < bound_min or val > bound_max: raise G2ResponseIntegerBoundsViolation(val, bound_min, bound_max)
+    if val < bound_min or val > bound_max:
+        raise G2ResponseIntegerBoundsViolation(val, bound_min, bound_max)
     return val
 
 
@@ -60,7 +63,8 @@ def parse_ang_low(string):
     return (f_deg + (f_min / 60.0))
 
 def parse_ang(string, precision):
-    assert isinstance(precision, G2Precision)
+    if not isinstance(precision, G2Precision):
+        raise G2ResponseParseError('parse_ang: not isinstance(precision, G2Precision)')
     if   precision == G2Precision.DOUBLE: return parse_ang_dbl (string)
     elif precision == G2Precision.HIGH:   return parse_ang_high(string)
     elif precision == G2Precision.LOW:    return parse_ang_low (string)
@@ -82,7 +86,8 @@ def parse_time_hilo(string):
     return float((i_hour * 3600) + (i_min * 60) + i_sec)
 
 def parse_time(string, precision):
-    assert isinstance(precision, G2Precision)
+    if not isinstance(precision, G2Precision):
+        raise G2ResponseParseError('parse_time: not isinstance(precision, G2Precision)')
     if precision == G2Precision.DOUBLE: return parse_ang_dbl (string)
     else:                               return parse_ang_hilo(string)
 
@@ -95,7 +100,7 @@ def parse_revisions(string):
         val = ord(char)
         if val < 0x30 or val > 0x7E: raise G2ResponseRevisionsParseError(string)
         vals.append(val - 0x30)
-    assert len(vals) == 8
+    if len(vals) != 8: raise G2ResponseRevisionsParseError(string)
     return vals
 
 
@@ -141,6 +146,17 @@ class Gemini2Command(ABC):
     def valid_for_serial(self): return True
     def valid_for_udp(self):    return True
 
+    # shared code between subclasses
+    def _check_bad_chars(self, string, bad_chars):
+        for char in bad_chars:
+            if char in string:
+                if isgraph(char):
+                    raise G2CommandBadCharacterError('command {:s}: '
+                        'contains \'{}\''.format(self.__class__.__name__, char))
+                else:
+                    raise G2CommandBadCharacterError('command {:s}: '
+                        'contains \'\\x{:02X}\''.format(self.__class__.__name__, ord(char)))
+
 # ==================================================================================================
 
 class Gemini2Command_ACK(Gemini2Command):
@@ -173,9 +189,7 @@ class Gemini2Command_LX200(Gemini2Command):
 
     def _check_validity(self, cmd_str):
         # TODO: do a more rigorous valid-character-range check here
-        assert not '#' in cmd_str
-        assert not '\x00' in cmd_str
-        assert not '\x06' in cmd_str
+        self._check_bad_chars(cmd_str, ['#', '\x00', '\x06'])
 
 class Gemini2Command_LX200_NoReply(Gemini2Command_LX200):
     def response(self):
@@ -218,12 +232,7 @@ class Gemini2Command_Native(Gemini2Command):
 
     def _check_validity(self, param_str):
         # TODO: do a more rigorous valid-character-range check here
-        assert not '<' in param_str
-        assert not '>' in param_str
-        assert not ':' in param_str
-        assert not '#' in param_str
-        assert not '\x00' in param_str
-        assert not '\x06' in param_str
+        self._check_bad_chars(param_str, ['<', '>', ':', '#', '\x00', '\x06'])
 
     # TODO: move this to somewhere common between cmd and response
     def _compute_checksum(self, cmd_str):
@@ -592,14 +601,14 @@ class G2Cmd_AlignToObject(Gemini2Command_LX200):
     def response(self):  return G2Rsp_AlignToObject(self)
 class G2Rsp_AlignToObject(Gemini2Response_LX200):
     def interpret(self):
-        assert self.get_raw() != 'No object!'
+        if self.get_raw() == 'No object!': raise G2ResponseInterpretationFailure()
 
 class G2Cmd_SyncToObject(Gemini2Command_LX200):
     def lx200_str(self): return 'CM'
     def response(self):  return G2Rsp_SyncToObject(self)
 class G2Rsp_SyncToObject(Gemini2Response_LX200):
     def interpret(self):
-        assert self.get_raw() != 'No object!'
+        if self.get_raw() == 'No object!': raise G2ResponseInterpretationFailure()
 
 
 ### Focus Control Commands
@@ -631,8 +640,8 @@ class G2Rsp_SyncToObject(Gemini2Response_LX200):
 
 class G2Cmd_SetObjectName(Gemini2Command_LX200_NoReply):
     def __init__(self, name):
-        assert name != ''
-        assert '#' not in name
+        if name == '': raise G2CommandParameterValueError('name cannot be empty')
+        if '#' in name: raise G2CommandParameterValueError('name cannot contain \'#\' characters')
         self._name = name
     def lx200_str(self): return 'ON{:s}'.format(self._name)
 
@@ -673,7 +682,8 @@ class G2Cmd_SetDblPrecision(Gemini2Command_LX200_NoReply):
 
 class G2Cmd_SetObjectRA(Gemini2Command_LX200):
     def __init__(self, ra):
-        assert ra >= 0.0 and ra < 360.0
+        if ra < 0.0 or ra >= 360.0:
+            raise G2CommandParameterValueError('ra must be >= 0.0 and < 360.0')
         _, self._hour, self._min, self._sec = ang_to_hourminsec(ra)
     def lx200_str(self): return 'Sr{:02d}:{:02d}:{:02d}'.format(self._hour, self._min, int(self._sec))
     def response(self):  return G2Rsp_SetObjectRA(self)
@@ -681,11 +691,12 @@ class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
     def fixed_len(self): return 1
     def interpret(self):
         validity = G2Valid(self.get_raw())  # raises ValueError if the response field value isn't in the enum
-        assert validity == G2Valid.VALID
+        if validity != G2Valid.VALID: raise G2ResponseInterpretationError()
 
 class G2Cmd_SetObjectDec(Gemini2Command_LX200):
     def __init__(self, dec):
-        assert dec >= -90.0 and dec <= 90.0
+        if dec < -90.0 or dec > 90.0:
+            raise G2CommandParameterValueError('dec must be >= -90.0 and <= 90.0')
         sign, self._deg, self._min, self._sec = ang_to_degminsec(dec)
         self._signchar = '+' if sign >= 0.0 else '-'
     def lx200_str(self): return 'Sd{:s}{:02d}:{:02d}:{:02d}'.format(self._signchar, self._deg, self._min, int(self._sec))
@@ -694,7 +705,7 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
     def fixed_len(self): return 1
     def interpret(self):
         validity = G2Valid(self.get_raw())  # raises ValueError if the response field value isn't in the enum
-        assert validity == G2Valid.VALID
+        if validity != G2Valid.VALID: raise G2ResponseInterpretationError()
         # NOTE: only objects which are currently above the horizon are considered valid
 
 
