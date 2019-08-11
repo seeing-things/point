@@ -10,7 +10,9 @@ Gemini2Exception
      G2BackendReadTimeoutError
   G2CommandException
      G2CommandParameterError
+        G2CommandParameterValueError
         G2CommandParameterTypeError
+     G2CommandBadCharacterError
   G2ResponseException
      G2ResponseDecodeError
         G2ResponseTooShortError
@@ -64,14 +66,20 @@ class G2BackendReadTimeoutError(G2BackendException):
 class G2CommandParameterError(G2CommandException):
     """These are raised when a Gemini2 command is created with invalid parameters"""
 
+class G2CommandParameterValueError(G2CommandParameterError):
+    """Raised when the values of parameters passed to the command do not match expectations"""
+
 class G2CommandParameterTypeError(G2CommandParameterError):
-    """Raised when parameters passed to the command do not match expectations"""
+    """Raised when the types of parameters passed to the command do not match expectations"""
     def __init__(self, *types):
         if len(types) == 1:
             super().__init__('command expects 1 parameter with type {:s}'.format(types[0]))
         else:
             super().__init__('command expects {:d} parameters with types: {:s}'.format(
                 len(types), ', '.join(types)))
+
+class G2CommandBadCharacterError(G2CommandException):
+    """Raised when a Gemini2 constructed command string contains reserved characters"""
 
 
 class G2ResponseDecodeError(G2ResponseException):
