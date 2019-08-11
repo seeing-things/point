@@ -263,22 +263,30 @@ class Gemini2Response(ABC):
     DecoderType = Enum('DecoderType', ['FIXED_LENGTH', 'HASH_TERMINATED', 'SEMICOLON_DELIMITED'])
 
     class Decoder(ABC):
-        @abstractmethod
-        def type(self): pass
+        def __init__(self, type, zero_len_hack):
+            self._type          = type
+            self._zero_len_hack = zero_len_hack
+
+        def type(self):
+            return self._type
+
+        # whether we want to be able to process possibly-zero-length responses
+        # (this requires a bunch of extra hack garbage in the serial backend)
+        def zero_len_hack(self):
+            return self._zero_len_hack
 
         # return: tuple: ([decoded_str OR list-of-decoded_strs], num_chars_processed)
         @abstractmethod
         def decode(self, chars): pass
 
     class FixedLengthDecoder(Decoder):
-        def __init__(self, fixed_len):
+        def __init__(self, fixed_len, zero_len_hack=False):
+            super().__init__(DecoderType.FIXED_LENGTH, zero_len_hack)
             assert fixed_len >= 0
             self._fixed_len = fixed_len
 
         def fixed_len(self):
             return self._fixed_len
-
-        def type(self): return DecoderType.FIXED_LENGTH
 
         def decode(self, chars):
             idx = self.fixed_len()
@@ -287,7 +295,8 @@ class Gemini2Response(ABC):
             return (chars[:idx], idx)
 
     class HashTerminatedDecoder(Decoder):
-        def type(self): return DecoderType.HASH_TERMINATED
+        def __init__(self):
+            super.__init__(DecoderType.HASH_TERMINATED)
 
         def decode(self, chars):
             idx = chars.find('#')
@@ -307,13 +316,12 @@ class Gemini2Response(ABC):
     # TODO: report this to Rene!
     class SemicolonDelimitedDecoder(Decoder):
         def __init__(self, num_fields):
+            super.__init__(DecoderType.SEMICOLON_DELIMITED)
             assert num_fields >= 0
             self._num_fields = num_fields
 
         def num_fields(self):
             return self._num_fields
-
-        def type(self): return DecoderType.SEMICOLON_DELIMITED
 
         def decode(self, chars):
             fields = chars.split(';', self._num_fields)
@@ -352,9 +360,6 @@ class Gemini2Response(ABC):
     # purpose: optionally implement this to do cmd-specific interpretation of the response string
     def interpret(self): pass
 
-    def decoder_type(self):
-        return self.decoder().type()
-
     def command(self):
         return self._cmd
 
@@ -389,12 +394,18 @@ class Gemini2Response_LX200(Gemini2Response):
     def decoder(self):
         return self.HashTerminatedDecoder()
 
+# --------------------------------------------------------------------------------------------------
+
 class Gemini2Response_LX200_FixedLength(Gemini2Response_LX200):
     def decoder(self):
         return self.FixedLengthDecoder(self.fixed_len())
 
     @abstractmethod
     def fixed_len(self): pass
+
+class Gemini2Response_LX200_FixedLengthOrZero(Gemini2Response_LX200_FixedLength):
+    def decoder(self):
+        return self.FixedLengthDecoder(self.fixed_len(), True)
 
 # --------------------------------------------------------------------------------------------------
 
