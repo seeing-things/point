@@ -88,8 +88,8 @@ def parse_time_hilo(string):
 def parse_time(string, precision):
     if not isinstance(precision, G2Precision):
         raise G2ResponseParseError('parse_time: not isinstance(precision, G2Precision)')
-    if precision == G2Precision.DOUBLE: return parse_ang_dbl (string)
-    else:                               return parse_ang_hilo(string)
+    if precision == G2Precision.DOUBLE: return parse_time_dbl (string)
+    else:                               return parse_time_hilo(string)
 
 
 def parse_revisions(string):
