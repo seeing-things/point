@@ -107,23 +107,33 @@ def parse_revisions(string):
 ####################################################################################################
 
 
-# returns tuple: (int:sign[-1|0|+1], int:deg, int:min, float:sec)
+# returns tuple: (int:sign[-1|0|+1], int:hour, int:min, int:sec)
+def ang_to_hourminsec(ang):
+    return ang_to_degminsec(ang * 24.0 / 360.0)
+
+# returns tuple: (int:sign[-1|0|+1], int:deg, int:min, int:sec)
 def ang_to_degminsec(ang):
     if   ang > 0.0: sign = +1.0
     elif ang < 0.0: sign = -1.0
     else:           sign =  0.0
     ang = abs(ang) * 3600.0
-    f_sec = ang % 60.0
+    i_sec = int(ang % 60.0) # TODO: change this to round(), if we can fix the round-up-to-60 issues
     ang /= 60.0
     i_min = int(ang % 60.0)
     ang /= 60.0
     i_deg = int(ang)
-    return (sign, i_deg, i_min, f_sec)
-# TODO: test this, in case I am dumb
+    return (sign, i_deg, i_min, i_sec)
 
-# returns tuple: (int:sign[-1|0|+1], int:hour, int:min, float:sec)
-def ang_to_hourminsec(ang):
-    return ang_to_degminsec(ang * 24.0 / 360.0)
+# returns tuple: (int:sign[-1|0|+1], int:deg, int:min)
+def ang_to_degmin(ang):
+    if   ang > 0.0: sign = +1.0
+    elif ang < 0.0: sign = -1.0
+    else:           sign =  0.0
+    ang = abs(ang) * 60.0
+    i_min = int(ang % 60.0) # TODO: change this to round(), if we can fix the round-up-to-60 issues
+    ang /= 60.0
+    i_deg = int(ang)
+    return (sign, i_deg, i_min)
 
 
 ####################################################################################################
@@ -696,7 +706,7 @@ class G2Cmd_SetObjectRA(Gemini2Command_LX200):
         if ra < 0.0 or ra >= 360.0:
             raise G2CommandParameterValueError('ra must be >= 0.0 and < 360.0')
         _, self._hour, self._min, self._sec = ang_to_hourminsec(ra)
-    def lx200_str(self): return 'Sr{:02d}:{:02d}:{:02d}'.format(self._hour, self._min, int(self._sec))
+    def lx200_str(self): return 'Sr{:02d}:{:02d}:{:02d}'.format(self._hour, self._min, self._sec)
     def response(self):  return G2Rsp_SetObjectRA(self)
 class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
     def fixed_len(self): return 1
@@ -710,7 +720,7 @@ class G2Cmd_SetObjectDec(Gemini2Command_LX200):
             raise G2CommandParameterValueError('dec must be >= -90.0 and <= 90.0')
         sign, self._deg, self._min, self._sec = ang_to_degminsec(dec)
         self._signchar = '+' if sign >= 0.0 else '-'
-    def lx200_str(self): return 'Sd{:s}{:02d}:{:02d}:{:02d}'.format(self._signchar, self._deg, self._min, int(self._sec))
+    def lx200_str(self): return 'Sd{:s}{:02d}:{:02d}:{:02d}'.format(self._signchar, self._deg, self._min, self._sec)
     def response(self):  return G2Rsp_SetObjectDec(self)
 class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
     def fixed_len(self): return 1
