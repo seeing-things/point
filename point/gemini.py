@@ -427,11 +427,29 @@ class Gemini2(object):
     def set_object_dec(self, dec):
         self.exec_cmd(G2Cmd_SetObjectDec(dec))
 
+    def set_site_longitude(self, lon):
+        self.exec_cmd(G2Cmd_SetSiteLongitude(lon))
+
+    def set_site_latitude(self, lat):
+        self.exec_cmd(G2Cmd_SetSiteLatitude(lat))
+
 
     ### Site Selection Commands
 
+    def set_stored_site(self, site):
+        self.exec_cmd(G2Cmd_SetStoredSite(site))
+
+    def get_stored_site(self):
+        return self.exec_cmd(G2Cmd_GetStoredSite()).get()
+
 
     ### Native Commands
+
+    def set_ntp_server_addr(self, addr):
+        self.exec_cmd(G2Cmd_NTPServerAddr_Set(addr))
+
+    def get_ntp_server_addr(self):
+        return self.exec_cmd(G2Cmd_NTPServerAddr_Get()).get()
 
 
     ### Undocumented Commands

@@ -642,6 +642,8 @@ class G2Rsp_SyncToObject(Gemini2Response_LX200):
     def interpret(self):
         if self.get_raw() == 'No object!': raise G2ResponseInterpretationFailure()
 
+# ...
+
 
 ### Focus Control Commands
 
@@ -676,6 +678,8 @@ class G2Cmd_SetObjectName(Gemini2Command_LX200_NoReply):
         if '#' in name: raise G2CommandParameterValueError('name cannot contain \'#\' characters')
         self._name = name
     def lx200_str(self): return 'ON{:s}'.format(self._name)
+
+# ...
 
 
 ### Precession and Refraction Commands
@@ -740,8 +744,57 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
         if validity != G2Valid.VALID: raise G2ResponseInterpretationFailure()
         # NOTE: only objects which are currently above the horizon are considered valid
 
+class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
+    def __init__(self, lon):
+        if lon <= -360.0 or lon >= 360.0:
+            raise G2CommandParameterValueError('lon must be > -360.0 and < 360.0')
+        sign, self._deg, self._min = ang_to_degmin(lon)
+        # everyone else in the world uses positive to mean eastern longitudes; but not LX200!
+        self._signchar = '-' if sign >= 0.0 else '+'
+    def lx200_str(self): return 'Sg{:s}{:03d}*{:02d}'.format(self._signchar, self._deg, self._min)
+    def response(self):  return G2Rsp_SetSiteLongitude(self)
+class G2Rsp_SetSiteLongitude(Gemini2Response_LX200_FixedLengthOrZero):
+    def fixed_len(self): return 1
+    def interpret(self):
+        if len(self.get_raw()) == 0: raise G2ResponseInterpretationFailure() # invalid
+        if self.get_raw() != '1':    raise G2ResponseInterpretationFailure() # ???
+
+class G2Cmd_SetSiteLatitude(Gemini2Command_LX200):
+    def __init__(self, lat):
+        if lat < -90.0 or lat > 90.0:
+            raise G2CommandParameterValueError('lat must be >= -90.0 and <= 90.0')
+        sign, self._deg, self._min = ang_to_degmin(lat)
+        self._signchar = '+' if sign >= 0.0 else '-'
+    def lx200_str(self): return 'St{:s}{:02d}*{:02d}'.format(self._signchar, self._deg, self._min)
+    def response(self):  return G2Rsp_SetSiteLatitude(self)
+class G2Rsp_SetSiteLatitude(Gemini2Response_LX200_FixedLengthOrZero):
+    def fixed_len(self): return 1
+    def interpret(self):
+        if len(self.get_raw()) == 0: raise G2ResponseInterpretationFailure() # invalid
+        if self.get_raw() != '1':    raise G2ResponseInterpretationFailure() # ???
+
+# ...
+
 
 ### Site Selection Commands
+
+# NOTE: the official Gemini 2 serial command documentation is WRONG here:
+#       the range for sites is 0-4 inclusive, not 0-3 inclusive
+class G2Cmd_SetStoredSite(Gemini2Command_LX200_NoReply):
+    def __init__(self, site):
+        if site < 0 or site > 4: raise G2CommandParameterValueError('site must be >= 0 and <= 4')
+        self._site = site
+    def lx200_str(self): return 'W{:d}'.format(self._site)
+
+# NOTE: the official Gemini 2 serial command documentation is WRONG here:
+#       the range for sites is 0-4 inclusive, not 0-3 inclusive
+class G2Cmd_GetStoredSite(Gemini2Command_LX200):
+    def lx200_str(self): return 'W?'
+    def response(self):  return G2Rsp_GetStoredSite(self)
+class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
+    def fixed_len(self): return 1
+    def interpret(self): self._site = parse_int_bounds(self.get_raw(), 0, 4)
+    def get(self):       return self._site
 
 # ...
 
@@ -756,6 +809,24 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
 #    def native_id(self):     return 92
 ##    def native_params(self): return '{:d}'.format(self._val)
 #    def response(self):      return None # TODO!
+
+class G2Cmd_NTPServerAddr_Set(Gemini2Command_Native_Set):
+    def __init__(self, addr):
+        if not isinstance(addr, ipaddress.IPv4Address):
+            raise G2CommandParameterTypeError('IPv4Address')
+        self._addr = addr
+    def native_id(self):     return 816
+    def native_params(self): return str(self._addr)
+
+class G2Cmd_NTPServerAddr_Get(Gemini2Command_Native_Get):
+    def native_id(self): return 816
+    def response(self):  return G2Rsp_NTPServerAddr_Get(self)
+class G2Rsp_NTPServerAddr_Get(Gemini2Response_Native):
+    def interpret(self): self._addr = parse_ip4vaddr(self.get_raw())
+    def get(self):       return self._addr
+
+# ...
+
 
 ### Undocumented Commands
 
