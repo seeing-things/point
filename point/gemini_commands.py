@@ -2,6 +2,7 @@ from abc import *
 import re
 import collections
 import sys
+import ipaddress
 from curses.ascii import isgraph
 from point.gemini_exceptions import *
 
@@ -19,13 +20,14 @@ else:
 ####################################################################################################
 
 
-_re_int       = re.compile(r'^([-+]?)(\d+)$',                             re.ASCII)
-_re_ang_dbl   = re.compile(r'^([-+]?)(\d{1,3}\.\d{6})$',                  re.ASCII)
-_re_ang_high  = re.compile(r'^([-+]?)(\d{1,2}):(\d{1,2}):(\d{1,2})$',     re.ASCII)
-_re_ang_low   = re.compile(r'^([-+]?)(\d{1,2})' + '\xDF' + r'(\d{1,2})$', re.ASCII)
-_re_time_dbl  = re.compile(r'^([-+]?)(\d+\.\d{6})$',                      re.ASCII)
-_re_time_hilo = re.compile(r'^(\d{1,2}):(\d{1,2}):(\d{1,2})$',            re.ASCII)
-_re_revisions = re.compile(r'^.{8}$',                                     re.ASCII)
+_re_int       = re.compile(r'^([-+]?)(\d+)$',                               re.ASCII)
+_re_ang_dbl   = re.compile(r'^([-+]?)(\d{1,3}\.\d{6})$',                    re.ASCII)
+_re_ang_high  = re.compile(r'^([-+]?)(\d{1,2}):(\d{1,2}):(\d{1,2})$',       re.ASCII)
+_re_ang_low   = re.compile(r'^([-+]?)(\d{1,3})' + '\xDF' + r'(\d{1,2})$',   re.ASCII)
+_re_time_dbl  = re.compile(r'^([-+]?)(\d+\.\d{6})$',                        re.ASCII)
+_re_time_hilo = re.compile(r'^(\d{1,2}):(\d{1,2}):(\d{1,2})$',              re.ASCII)
+_re_revisions = re.compile(r'^.{8}$',                                       re.ASCII)
+_re_ipv4addr  = re.compile(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$', re.ASCII)
 
 
 def parse_int(string):
@@ -103,6 +105,15 @@ def parse_revisions(string):
     if len(vals) != 8: raise G2ResponseRevisionsParseError(string)
     return vals
 
+
+def parse_ip4vaddr(string):
+    match = _re_ipv4addr.fullmatch(string)
+    if match is None:                                        raise G2ResponseIPv4AddressParseError(string)
+    if int(match.group(1)) < 0 or int(match.group(1)) > 255: raise G2ResponseIPv4AddressParseError(string)
+    if int(match.group(2)) < 0 or int(match.group(2)) > 255: raise G2ResponseIPv4AddressParseError(string)
+    if int(match.group(3)) < 0 or int(match.group(3)) > 255: raise G2ResponseIPv4AddressParseError(string)
+    if int(match.group(4)) < 0 or int(match.group(4)) > 255: raise G2ResponseIPv4AddressParseError(string)
+    return ipaddress.IPv4Address(string)
 
 ####################################################################################################
 
