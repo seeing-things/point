@@ -2,6 +2,7 @@ from abc import *
 import re
 import collections
 import sys
+import datetime
 import ipaddress
 from curses.ascii import isgraph
 from point.gemini_exceptions import *
@@ -64,12 +65,21 @@ def parse_ang_low(string):
     f_min = float(match.expand(r'\1\3'))
     return (f_deg + (f_min / 60.0))
 
-def parse_ang(string, precision):
+def parse_ang(string, precision, ):
     if not isinstance(precision, G2Precision):
         raise G2ResponseParseError('parse_ang: not isinstance(precision, G2Precision)')
     if   precision == G2Precision.DOUBLE: return parse_ang_dbl (string)
     elif precision == G2Precision.HIGH:   return parse_ang_high(string)
     elif precision == G2Precision.LOW:    return parse_ang_low (string)
+
+# input might be either:
+# [-+]
+def parse_ang_low_or_dbl_dms(string):
+    # TODO
+
+def parse_ang_low_or_dbl_hms(string):
+    # TODO
+
 
 
 def parse_time_dbl(string):
@@ -654,6 +664,20 @@ class G2Rsp_SyncToObject(Gemini2Response_LX200):
 
 ### Get Information Commands
 
+# TODO: GC
+# TODO: GG
+
+# TODO: Gg
+class G2Cmd_GetSiteLongitude(Gemini2Command_LX200):
+
+
+# TODO: GL
+# TODO: GM
+# TODO: GN
+# TODO: GO
+# TODO: GP
+# TODO: Gt
+
 # ...
 
 
@@ -746,6 +770,13 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
         if validity != G2Valid.VALID: raise G2ResponseInterpretationFailure()
         # NOTE: only objects which are currently above the horizon are considered valid
 
+# TODO: SG
+# TODO: S0
+# TODO: SM
+# TODO: SN
+# TODO: SO
+# TODO: SP
+
 class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
     def __init__(self, lon):
         if lon <= -360.0 or lon >= 360.0:
@@ -812,6 +843,9 @@ class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
 ##    def native_params(self): return '{:d}'.format(self._val)
 #    def response(self):      return None # TODO!
 
+# TODO: 96
+# TODO: 97
+
 class G2Cmd_PECBootPlayback_Set(Gemini2Command_Native_Set):
     def __init__(self, enable):
         if not isinstance(enable, bool):
@@ -863,6 +897,28 @@ class G2Cmd_NTPServerAddr_Get(Gemini2Command_Native_Get):
 class G2Rsp_NTPServerAddr_Get(Gemini2Response_Native):
     def interpret(self): self._addr = parse_ip4vaddr(self.get_raw())
     def get(self):       return self._addr
+
+# command 826 is seriously fucked up >:[
+# 1. both the get and set variations seem to do the same thing (trigger an NTP query)
+# 2. both the get and set variations return a value (the set variation shouldn't)
+# 3. the return value appears to be binary '\x01', not ASCII '1'
+# 4. the return value never has a checksum for some reason
+# I have no idea how this is so bad...
+
+# presumably: request that the mount initiate an NTP query
+class G2Cmd_NTPServerQuery_Set(Gemini2Command_Native_Set):
+    def native_id(self): return 826
+
+# presumably: get the status of the ongoing NTP query
+class G2Cmd_NTPServerQuery_Get(Gemini2Command_Native_Get):
+    def native_id(self): return 826
+    def response(self):  return G2Rsp_NTPServerQuery_Get(self)
+class G2Rsp_NTPServerQuery_Get(Gemini2Response_Native):
+    def interpret(self):
+        if   self.get_raw() == '0': self._queried = True
+        elif self.get_raw() == '1': self._queried = False
+        else: raise G2ResponseInterpretationFailure()
+    def get(self): return self._queried
 
 # ...
 
