@@ -503,6 +503,8 @@ class G2ParkStatus(Enum):
     PARKING    = 2
 
 # parameter for MacroENQ [field 'pec_state']
+# parameter for PECStatus_Set
+# response for PECStatus_Get
 class G2PECStatus(Flag):
     ACTIVE               = (1 << 0)
     FRESH_DATA_AVAILABLE = (1 << 1)
@@ -809,6 +811,43 @@ class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
 #    def native_id(self):     return 92
 ##    def native_params(self): return '{:d}'.format(self._val)
 #    def response(self):      return None # TODO!
+
+class G2Cmd_PECBootPlayback_Set(Gemini2Command_Native_Set):
+    def __init__(self, enable):
+        if not isinstance(enable, bool):
+            raise G2CommandParameterTypeError('bool')
+        self._enable = enable
+    def native_id(self):     return 508
+    def native_params(self): return '1' if self._enable else '0'
+
+class G2Cmd_PECBootPlayback_Get(Gemini2Command_Native_Get):
+    def native_id(self): return 508
+    def response(self):  return G2Rsp_PECBootPlayback_Get(self)
+class G2Rsp_PECBootPlayback_Get(Gemini2Response_Native):
+    def interpret(self): self._enabled = parse_int_bounds(self.get_raw(), 0, 1)
+    def get(self):       return (self._enabled != 0)
+
+class G2Cmd_PECStatus_Set(Gemini2Command_Native_Set):
+    def __init__(self, status):
+        if not isinstance(status, G2PECStatus):
+            raise G2CommandParameterTypeError('G2PECStatus')
+        self._status = status
+    def native_id(self):     return 509
+    def native_params(self): return str(self._status.value)
+
+class G2Cmd_PECStatus_Get(Gemini2Command_Native_Get):
+    def native_id(self): return 509
+    def response(self):  return G2Rsp_PECStatus_Get(self)
+class G2Rsp_PECStatus_Get(Gemini2Response_Native):
+    def interpret(self):
+        self._status = G2PECStatus(int(self.get_raw())) # raises ValueError if the response field value isn't in the enum
+    def get(self): return self._status
+
+class G2Cmd_PECReplayOn_Set(Gemini2Command_Native_Set):
+    def native_id(self): return 531
+
+class G2Cmd_PECReplayOff_Set(Gemini2Command_Native_Set):
+    def native_id(self): return 532
 
 class G2Cmd_NTPServerAddr_Set(Gemini2Command_Native_Set):
     def __init__(self, addr):
