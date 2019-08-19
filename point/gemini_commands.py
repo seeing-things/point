@@ -263,7 +263,7 @@ class Gemini2Response(ABC):
     DecoderType = Enum('DecoderType', ['FIXED_LENGTH', 'HASH_TERMINATED', 'SEMICOLON_DELIMITED'])
 
     class Decoder(ABC):
-        def __init__(self, type, zero_len_hack):
+        def __init__(self, type, zero_len_hack=False):
             self._type          = type
             self._zero_len_hack = zero_len_hack
 
@@ -281,7 +281,7 @@ class Gemini2Response(ABC):
 
     class FixedLengthDecoder(Decoder):
         def __init__(self, fixed_len, zero_len_hack=False):
-            super().__init__(DecoderType.FIXED_LENGTH, zero_len_hack)
+            super().__init__(Gemini2Response.DecoderType.FIXED_LENGTH, zero_len_hack)
             assert fixed_len >= 0
             self._fixed_len = fixed_len
 
@@ -296,7 +296,7 @@ class Gemini2Response(ABC):
 
     class HashTerminatedDecoder(Decoder):
         def __init__(self):
-            super.__init__(DecoderType.HASH_TERMINATED)
+            super.__init__(Gemini2Response.DecoderType.HASH_TERMINATED)
 
         def decode(self, chars):
             idx = chars.find('#')
@@ -316,7 +316,7 @@ class Gemini2Response(ABC):
     # TODO: report this to Rene!
     class SemicolonDelimitedDecoder(Decoder):
         def __init__(self, num_fields):
-            super.__init__(DecoderType.SEMICOLON_DELIMITED)
+            super.__init__(Gemini2Response.DecoderType.SEMICOLON_DELIMITED)
             assert num_fields >= 0
             self._num_fields = num_fields
 
@@ -701,8 +701,8 @@ class G2Cmd_SetObjectRA(Gemini2Command_LX200):
 class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
     def fixed_len(self): return 1
     def interpret(self):
-        validity = G2Valid(self.get_raw())  # raises ValueError if the response field value isn't in the enum
-        if validity != G2Valid.VALID: raise G2ResponseInterpretationError()
+        validity = G2Valid(self.get_raw()) # raises ValueError if the response field value isn't in the enum
+        if validity != G2Valid.VALID: raise G2ResponseInterpretationFailure()
 
 class G2Cmd_SetObjectDec(Gemini2Command_LX200):
     def __init__(self, dec):
@@ -715,8 +715,8 @@ class G2Cmd_SetObjectDec(Gemini2Command_LX200):
 class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
     def fixed_len(self): return 1
     def interpret(self):
-        validity = G2Valid(self.get_raw())  # raises ValueError if the response field value isn't in the enum
-        if validity != G2Valid.VALID: raise G2ResponseInterpretationError()
+        validity = G2Valid(self.get_raw()) # raises ValueError if the response field value isn't in the enum
+        if validity != G2Valid.VALID: raise G2ResponseInterpretationFailure()
         # NOTE: only objects which are currently above the horizon are considered valid
 
 
