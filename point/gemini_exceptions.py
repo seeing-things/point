@@ -24,6 +24,7 @@ Gemini2Exception
         G2ResponseAngleParseError
         G2ResponseTimeParseError
         G2ResponseRevisionsParseError
+        G2ResponseIPv4AddressParseError
      G2ResponseBoundsViolation
         G2ResponseIntegerBoundsViolation
      G2ResponseInterpretationFailure
@@ -134,6 +135,11 @@ class G2ResponseRevisionsParseError(G2ResponseParseError):
     def __init__(self, string):
         super().__init__('failed to parse \'{:s}\' as G2 native command #97 eight-character '
                          'revisions parameter'.format(string))
+
+class G2ResponseIPv4AddressParseError(G2ResponseParseError):
+    """Raised when a response cannot be parsed as an IPv4 address"""
+    def __init__(self, string):
+        super().__init__('failed to parse \'{:s}\' as IPv4 address'.format(string))
 
 
 class G2ResponseBoundsViolation(G2ResponseException):
