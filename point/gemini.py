@@ -445,6 +445,24 @@ class Gemini2(object):
 
     ### Native Commands
 
+    def set_pec_boot_playback(self, enable):
+        self.exec_cmd(G2Cmd_PECBootPlayback_Set(enable))
+
+    def get_pec_boot_playback(self):
+        return self.exec_cmd(G2Cmd_PECBootPlayback_Get()).get()
+
+    def set_pec_status(self, status):
+        self.exec_cmd(G2Cmd_PECStatus_Set(status))
+
+    def get_pec_status(self):
+        return self.exec_cmd(G2Cmd_PECStatus_Get()).get()
+
+    def set_pec_replay(self, enable):
+        if enable:
+            self.exec_cmd(G2Cmd_PECReplayOn_Set())
+        else:
+            self.exec_cmd(G2Cmd_PECReplayOff_Set())
+
     def set_ntp_server_addr(self, addr):
         self.exec_cmd(G2Cmd_NTPServerAddr_Set(addr))
 
