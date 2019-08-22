@@ -466,6 +466,8 @@ class Gemini2(object):
             self.exec_cmd(G2Cmd_PECReplayOff_Set())
 
     def set_ntp_server_addr(self, addr):
+        if isinstance(addr, str):
+            addr = ipaddress.IPv4Address(addr)
         self.exec_cmd(G2Cmd_NTPServerAddr_Set(addr))
 
     def get_ntp_server_addr(self):
