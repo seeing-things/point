@@ -73,9 +73,9 @@ def parse_time_dbl(string):
 def parse_time_hilo(string):
     match = _re_time_hilo.fullmatch(string)
     if match is None: raise G2ResponseTimeParseError(string, 'high/low')
-    i_hour = int(match.group(1))
-    i_min  = int(match.group(2))
-    i_sec  = int(match.group(3))
+    i_hour = int(match[1])
+    i_min  = int(match[2])
+    i_sec  = int(match[3])
     # TODO: bounds check on hour field...? and should we even be limiting the hour field to 2 digits in the RE?
     if i_min >= 60 or i_sec >= 60: raise G2ResponseTimeParseError(string, 'high/low')
     return float((i_hour * 3600) + (i_min * 60) + i_sec)
@@ -101,11 +101,11 @@ def parse_revisions(string):
 
 def parse_ip4vaddr(string):
     match = _re_ipv4addr.fullmatch(string)
-    if match is None:                                        raise G2ResponseIPv4AddressParseError(string)
-    if int(match.group(1)) < 0 or int(match.group(1)) > 255: raise G2ResponseIPv4AddressParseError(string)
-    if int(match.group(2)) < 0 or int(match.group(2)) > 255: raise G2ResponseIPv4AddressParseError(string)
-    if int(match.group(3)) < 0 or int(match.group(3)) > 255: raise G2ResponseIPv4AddressParseError(string)
-    if int(match.group(4)) < 0 or int(match.group(4)) > 255: raise G2ResponseIPv4AddressParseError(string)
+    if match is None:                            raise G2ResponseIPv4AddressParseError(string)
+    if int(match[1]) < 0 or int(match[1]) > 255: raise G2ResponseIPv4AddressParseError(string)
+    if int(match[2]) < 0 or int(match[2]) > 255: raise G2ResponseIPv4AddressParseError(string)
+    if int(match[3]) < 0 or int(match[3]) > 255: raise G2ResponseIPv4AddressParseError(string)
+    if int(match[4]) < 0 or int(match[4]) > 255: raise G2ResponseIPv4AddressParseError(string)
     return ipaddress.IPv4Address(string)
 
 ####################################################################################################
