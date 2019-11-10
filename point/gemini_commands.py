@@ -4,6 +4,7 @@ import collections
 import sys
 import ipaddress
 from curses.ascii import isgraph
+from enum import Enum, IntEnum
 from point.gemini_exceptions import *
 
 
