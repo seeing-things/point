@@ -7,13 +7,6 @@ from curses.ascii import isgraph
 from point.gemini_exceptions import *
 
 
-if not (sys.version_info[0] == 3 and sys.version_info[1] < 6):
-    from enum import *
-else:
-    # backported Python 3.6 enum class (has Flags etc)
-    from point.enum36 import *
-
-
 # TODO: print command/response class name in exception messages more often / more consistently
 
 
