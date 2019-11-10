@@ -1,6 +1,6 @@
 [![Build Status](https://travis-ci.com/seeing-things/point.svg?branch=master)](https://travis-ci.com/seeing-things/point)
 
-Point implements interfaces to telescope mounts. It currently supports two mount types: Celestron NexStar and Losmandy Gemini 2. This package requires Python 3. Python 2 is not supported.
+Point implements interfaces to telescope mounts. It currently supports two mount types: Celestron NexStar and Losmandy Gemini 2. This package requires Python 3 (3.6 or newer). Python 2 is not supported.
 
 Class `NexStar` wraps the serial commands supported by the Celestron NexStar telescope hand controllers. All of the commands in [this document](http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip) are supported. See the comments in the source code for information on each function. This project has been tested by the author with a Celestron NexStar 130 SLT.
 
