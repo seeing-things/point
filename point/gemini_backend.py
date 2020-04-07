@@ -3,6 +3,7 @@ import serial
 import socket
 import struct
 import string
+import threading
 import point.gemini_commands
 from point.gemini_exceptions import *
 
@@ -154,6 +155,8 @@ class Gemini2BackendUDP(Gemini2Backend):
         self._stats['dgram_nack_tx'] = 0
         self._stats['dgram_nack_rx'] = 0
 
+        self._command_lock = threading.Lock()
+
     def execute_one_command(self, cmd):
         if not cmd.valid_for_udp():
             raise G2BackendCommandNotSupportedError('command {:s} is not supported on the UDP backend'.format(cmd.__class__.__name__))
@@ -170,6 +173,12 @@ class Gemini2BackendUDP(Gemini2Backend):
         # over here we can specifically wait on receiving a datagram with the actual seqnum we want?
         # OR: integrate the seqnum/last_seqnum processing into a separate function, so that we can
         # rapidly identify it and just immediately loop back to recv again if it's wrong
+
+        # TODO: We have a problem if CTRL-C occurs while this lock is acquired, since then when
+        # stop_motion() is called on the Gemini class it will block forever waiting for this lock.
+        # We really need a way to defer SIGINT. This looks promising:
+        # https://stackoverflow.com/a/21919644/2475856
+        self._command_lock.acquire()
 
         # upon a successful NACK that indicates the command was not received, we'll end up back here
         while True:
@@ -195,6 +204,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                 retry_num = 0
                 while True:
                     if retry_num >= self._retry_limit:
+                        self._command_lock.release()
                         raise G2BackendReadTimeoutError('gave up after {:d} NACK retry attempts'.format(retry_num))
                     retry_num += 1
                     self._seqnum += 1
@@ -213,8 +223,10 @@ class Gemini2BackendUDP(Gemini2Backend):
                 self._stats['dgram_cmd_rx'] += 1
 
             if len(buf_resp) > self.UDP_RESP_DGRAM_LEN_MAX:
+                self._command_lock.release()
                 raise G2BackendResponseError('received UDP response datagram larger than max length: {:d} > {:d}'.format(len(buf_resp), self.UDP_RESP_DGRAM_LEN_MAX))
             elif len(buf_resp) < self.UDP_RESP_DGRAM_LEN_MIN:
+                self._command_lock.release()
                 raise G2BackendResponseError('received UDP response datagram smaller than min length: {:d} < {:d}'.format(len(buf_resp), self.UDP_RESP_DGRAM_LEN_MIN))
 
             (seqnum, last_seqnum) = struct.unpack('!II', buf_resp[0:8])
@@ -225,6 +237,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                     skip_send = True
                     continue
                 elif seqnum < cmd_seqnum or seqnum > self._seqnum:
+                    self._command_lock.release()
                     raise G2BackendResponseError('mismatched sequence number in UDP response datagram: {:d} != {:d}'.format(seqnum, self._seqnum))
 
             if did_retry:
@@ -245,25 +258,32 @@ class Gemini2BackendUDP(Gemini2Backend):
 
             num_nulls = buf_resp.count('\x00')
             if num_nulls == 0:
+                self._command_lock.release()
                 raise G2BackendResponseError('received UDP response buffer of length {:d} containing no NULL terminator'.format(len(buf_resp)))
             elif num_nulls > 1:
+                self._command_lock.release()
                 raise G2BackendResponseError('received UDP response buffer of length {:d} containing {:d} NULL characters'.format(len(buf_resp), num_nulls))
             elif buf_resp[-1] != '\x00':
+                self._command_lock.release()
                 raise G2BackendResponseError('received UDP response buffer of length {:d} with single NULL terminator at non-end index {:d}'.format(len(buf_resp), string.rfind(buf_resp, '\x00')))
             buf_resp = buf_resp[:-1]
 
             resp = cmd.response()
             if len(buf_resp) == 1 and buf_resp[0] == '\x06':
                 if not resp is None:
+                    self._command_lock.release()
                     raise G2BackendResponseError('received ACK (no response), but command {:s} expected to receive response {:s}'.format(cmd.__class__.__name__, resp.__class__.__name__))
             else:
                 if resp is None:
+                    self._command_lock.release()
                     raise G2BackendResponseError('received a response of some kind, but command {:s} was expecting no response'.format(cmd.__class__.__name__))
                 len_consumed = resp.decode(buf_resp)
                 if len_consumed != len(buf_resp):
+                    self._command_lock.release()
                     raise G2BackendResponseError('response was decoded, but only {:d} of the {:d} available characters were consumed'.format(len_consumed, len(buf_resp)))
 
             self._stats['cmd_exec'] += 1
+            self._command_lock.release()
             return resp
 
     def execute_multiple_commands(self, *cmds):
