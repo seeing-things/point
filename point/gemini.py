@@ -1,7 +1,8 @@
 import datetime
 import time
 import calendar
-import threading
+import multiprocessing
+import signal
 from typing import Tuple
 import point.gemini_backend
 from point.gemini_commands import *
@@ -77,22 +78,22 @@ class Gemini2(object):
         self.set_double_precision()
 
         self._slew_rate_target = {
-            'ra': 0.0,
-            'dec': 0.0,
+            'ra': multiprocessing.Value('f', 0.0),
+            'dec': multiprocessing.Value('f', 0.0),
         }
-        self._stop_motion = False
+        self._stop_motion = multiprocessing.Event()
         self._slew_rate_event = {
-            'ra': threading.Event(),
-            'dec': threading.Event(),
+            'ra': multiprocessing.Event(),
+            'dec': multiprocessing.Event(),
         }
         self._slew_rate_threads = {
-            'ra': threading.Thread(
+            'ra': multiprocessing.Process(
                 target=self._slew_rate_thread,
-                name='Gemini: RA slew rate thread',
+                name='Gemini RA slew rate thread',
                 args=('ra',)),
-            'dec': threading.Thread(
+            'dec': multiprocessing.Process(
                 target=self._slew_rate_thread,
-                name='Gemini: DEC slew rate thread',
+                name='Gemini DEC slew rate thread',
                 args=('dec',)),
         }
         self._slew_rate_threads['ra'].start()
@@ -590,7 +591,7 @@ class Gemini2(object):
         # quantize the rate
         rate = self.div_to_slew_rate(self.slew_rate_to_div(rate))
 
-        self._slew_rate_target[axis] = rate
+        self._slew_rate_target[axis].value = rate
         self._slew_rate_event[axis].set()
 
         return rate, limits_exceeded
@@ -608,6 +609,9 @@ class Gemini2(object):
             axis: The mount axis to be controlled by this thread (one thread per axis).
         """
 
+        # Ignore SIGINT in this process (will be handled in main process)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+
         # TODO: Read initial slew rate from Gemini rather than assuming it is zero
         # Commanded rate is cached along with the time of last command to enforce acceleration
         # limit
@@ -615,7 +619,10 @@ class Gemini2(object):
         last_command_time = time.time() - 1e-3
 
         while True:
-            rate_desired = self._slew_rate_target[axis]
+            if self._stop_motion.is_set():
+                rate_desired = 0.0
+            else:
+                rate_desired = self._slew_rate_target[axis].value
 
             current_time = time.time()
             time_since_last = current_time - last_command_time
@@ -665,14 +672,14 @@ class Gemini2(object):
             actual_rate = self.div_to_slew_rate(div)
 
             # TODO: Do we *always* want to exit this thread when stop_motion() is called?
-            if self._stop_motion == True and actual_rate == 0.0:
+            if self._stop_motion.is_set() and actual_rate == 0.0:
                 return
 
             last_commanded_rate = actual_rate
             last_command_time = current_time
 
             # No limits were enforced, so the target rate has been achieved. Wait for new target.
-            if rate_desired == self._slew_rate_target[axis]:
+            if rate_desired == self._slew_rate_target[axis].value:
                 self._slew_rate_event[axis].clear()
                 self._slew_rate_event[axis].wait()
 
@@ -729,11 +736,10 @@ class Gemini2(object):
         except Exception:
             pass
 
-        # informs slew command threads to end when rates reach zero
-        self._stop_motion = True
-
-        self.slew('ra', 0.0)
-        self.slew('dec', 0.0)
+        # informs slew command threads to bring rates to zero and then quit
+        self._stop_motion.set()
+        self._slew_rate_event['ra'].set()
+        self._slew_rate_event['dec'].set()
 
         # TODO: Is this safe? Maybe we should re-start these threads in case they died unexpectedly?
         # wait for threads to end
