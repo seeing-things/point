@@ -10,6 +10,33 @@ import point.gemini_commands
 from point.gemini_exceptions import *
 
 
+class DelayedKeyboardInterrupt:
+    """Prevents KeyboardInterrupt from interrupting a critical section of code.
+
+    Adapted from https://stackoverflow.com/a/21919644/2475856. Added a check to only apply it in
+    the main thread, since signals in Python only work in the main thread.
+    """
+    def __enter__(self):
+        if threading.main_thread() is threading.current_thread():
+            if signal.getsignal(signal.SIGINT) == signal.SIG_IGN:
+                # nothing to do, SIGINT is already being ignored in this process
+                return
+            self.signal_received = False
+            self.old_handler = signal.signal(signal.SIGINT, self.handler)
+
+    def handler(self, sig, frame):
+        self.signal_received = (sig, frame)
+        print('SIGINT received. Delaying KeyboardInterrupt.')
+
+    def __exit__(self, type, value, traceback):
+        if threading.main_thread() is threading.current_thread():
+            if signal.getsignal(signal.SIGINT) == signal.SIG_IGN:
+                return
+            signal.signal(signal.SIGINT, self.old_handler)
+            if self.signal_received:
+                self.old_handler(*self.signal_received)
+
+
 class Gemini2Backend(ABC):
     @abstractmethod
     def execute_one_command(self, cmd):
@@ -162,7 +189,8 @@ class Gemini2BackendUDP(Gemini2Backend):
     def execute_one_command(self, cmd):
         self._command_lock.acquire()
         try:
-            resp = self._execute_one_command(cmd)
+            with DelayedKeyboardInterrupt():
+                resp = self._execute_one_command(cmd)
         finally:
             self._command_lock.release()
         return resp
