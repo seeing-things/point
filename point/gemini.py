@@ -1,7 +1,8 @@
 import datetime
 import time
 import calendar
-import multiprocessing
+from multiprocessing import Process, Event, Pipe
+from multiprocessing.connection import Connection
 import signal
 from typing import Tuple
 import point.gemini_backend
@@ -77,30 +78,29 @@ class Gemini2(object):
         self._accel_limit = accel_limit
         self.set_double_precision()
 
-        self._slew_rate_target = {
-            'ra': multiprocessing.Value('f', 0.0),
-            'dec': multiprocessing.Value('f', 0.0),
-        }
-        self._stop_motion = multiprocessing.Event()
-        self._slew_rate_event = {
-            'ra': multiprocessing.Event(),
-            'dec': multiprocessing.Event(),
-        }
-        self._slew_rate_threads = {
-            'ra': multiprocessing.Process(
-                target=self._slew_rate_thread,
-                name='Gemini RA slew rate thread',
-                args=('ra',)),
-            'dec': multiprocessing.Process(
-                target=self._slew_rate_thread,
-                name='Gemini DEC slew rate thread',
-                args=('dec',)),
-        }
-        self._slew_rate_threads['ra'].start()
-        self._slew_rate_threads['dec'].start()
+        self._slew_rate_processes = {}
+        self._slew_rate_target = {}
+        self._axis_safe_event = {}
+        for axis in ['ra', 'dec']:
+            self._axis_safe_event[axis] = Event()
+            rate_target_pipe_recv, rate_target_pipe_send = Pipe(duplex=False)
+            self._slew_rate_target[axis] = rate_target_pipe_send
+            self._slew_rate_processes[axis] = Process(
+                target=self._slew_rate_process,
+                name='Gemini ' + axis.upper() + ' slew rate thread',
+                args=(axis, rate_target_pipe_recv, self._axis_safe_event[axis])
+            )
+            self._slew_rate_processes[axis].start()
 
     def __del__(self):
-        self.stop_motion()
+        """Shuts down both slew rate command processes."""
+        for axis in ['ra', 'dec']:
+            if self._slew_rate_processes[axis].is_alive():
+                # informs slew command process to bring rates to zero and then quit
+                self._slew_rate_target[axis].send(None)
+
+        for axis in ['ra', 'dec']:
+            self._slew_rate_processes[axis].join()
 
     def exec_cmd(self, cmd):
         return self._backend.execute_one_command(cmd)
@@ -576,7 +576,6 @@ class Gemini2(object):
         if axis not in ['ra', 'dec']:
             raise ValueError("axis must be 'ra' or 'dec'")
 
-
         limits_exceeded = False
 
         # enforce slew rate limit if limit is enabled
@@ -591,67 +590,92 @@ class Gemini2(object):
         # quantize the rate
         rate = self.div_to_slew_rate(self.slew_rate_to_div(rate))
 
-        self._slew_rate_target[axis].value = rate
-        self._slew_rate_event[axis].set()
+        # send the target rate to the process
+        self._slew_rate_target[axis].send(rate)
 
         return rate, limits_exceeded
 
 
-    def _slew_rate_thread(self, axis: str):
-        """Thread for sending slew rate commands continuously until a target rate is achieved.
+    def _slew_rate_process(self, axis: str, rate_target_pipe: Connection, axis_safe_event: Event):
+        """Process for sending slew rate commands continuously until a target rate is achieved.
 
-        This thread helps the mount to accelerate smoothly, since this requires sending commands
+        This process helps the mount to accelerate smoothly, since this requires sending commands
         to the mount computer in rapid succession. Acceleration and slew rate step limits are
         enforced here. Commands are sent to the mount until the desired target slew rate is
-        achieved, and then it will wait for an event to signal that a new target has been set.
+        achieved, and then it will wait for a new rate target before sending further commands.
 
         Args:
-            axis: The mount axis to be controlled by this thread (one thread per axis).
+            axis: The mount axis to be controlled by this process (one process per axis).
+            rate_target_pipe: The receiving end connection to a multiprocessing pipe over which
+                slew rate target values are sent. Rates are in degrees per second.
+            axis_safe_event: When the axis is safed, meaning that motion is stopped, this event
+                will be set. Otherwise, it will be cleared.
         """
 
         # Ignore SIGINT in this process (will be handled in main process)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
         # TODO: Read initial slew rate from Gemini rather than assuming it is zero
-        # Commanded rate is cached along with the time of last command to enforce acceleration
+        # Last commanded rate is cached along with the time of last command to enforce acceleration
         # limit
-        last_commanded_rate = 0.0
-        last_command_time = time.time() - 1e-3
+        div_last_commanded = 0
+        div_target = 0
+        time_last_commanded = time.time() - 1e-3
+        shutdown = False
 
         while True:
-            if self._stop_motion.is_set():
-                rate_desired = 0.0
-            else:
-                rate_desired = self._slew_rate_target[axis].value
+            if shutdown == True:
+                if div_last_commanded == 0:
+                    return
+            # only try to receive from the pipe if a new rate target is waiting or if the last-
+            # received rate target has been achieved, in which case we want to block
+            elif rate_target_pipe.poll() or div_last_commanded == div_target:
+                rate_target = rate_target_pipe.recv()
+                # None is a special value indicating that it is time to shut down this process
+                if rate_target is None:
+                    div_target = 0
+                    shutdown = True
+                else:
+                    div_target = self.slew_rate_to_div(rate_target)
 
             current_time = time.time()
-            time_since_last = current_time - last_command_time
+            time_since_last = current_time - time_last_commanded
+
+            # may not be able to achieve div_target if it exceeds rate accel or step limits
+            rate_to_command = self.div_to_slew_rate(div_target)
+            rate_last_commanded = self.div_to_slew_rate(div_last_commanded)
 
             # enforce acceleration limit if limit is enabled
             if self._accel_limit is not None:
-                rate_change = rate_desired - last_commanded_rate
+                rate_change = rate_to_command - rate_last_commanded
                 if abs(rate_change) / time_since_last > self._accel_limit:
                     clamped_rate_change = clamp(rate_change, self._accel_limit * time_since_last)
                     accel = rate_change / time_since_last
-                    rate_desired = last_commanded_rate + clamped_rate_change
+                    rate_to_command = rate_last_commanded + clamped_rate_change
 
             # enforce rate step limit if limit is enabled
             if self._rate_step_limit is not None:
-                rate_change = rate_desired - last_commanded_rate
+                rate_change = rate_to_command - rate_last_commanded
                 if abs(rate_change) > self._rate_step_limit:
                     clamped_rate_change = clamp(rate_change, self._rate_step_limit)
-                    rate_desired = last_commanded_rate + clamped_rate_change
+                    rate_to_command = rate_last_commanded + clamped_rate_change
 
-            div = self.slew_rate_to_div(rate_desired)
+            div = self.slew_rate_to_div(rate_to_command)
+
+            # Clear this event before sending the actual commands since the state of the mount
+            # is about to change and because if the commands fail for some reason the state of
+            # the mount will be unknown and cannot be assumed to be safe.
+            if div != 0:
+                axis_safe_event.clear()
 
             try:
                 if axis == 'ra':
                     # Must use the start and stop movement commands on the RA axis because
                     # achieving zero motion when slew() is called repeatedly with a rate of zero
                     # can't be accomplished using set_ra_divisor alone.
-                    if div == 0 and last_commanded_rate != 0.0:
+                    if div == 0 and div_last_commanded != 0:
                         self.ra_stop_movement()
-                    elif div != 0 and last_commanded_rate == 0.0:
+                    elif div != 0 and div_last_commanded == 0:
                         self.ra_start_movement()
 
                     # Only set the RA divisor to non-zero values. Setting the RA divisor to 0 will
@@ -669,19 +693,11 @@ class Gemini2(object):
                 continue
 
             # re-compute rate from divisor so that quantization error is accounted for
-            actual_rate = self.div_to_slew_rate(div)
+            div_last_commanded = div
+            time_last_commanded = current_time
 
-            # TODO: Do we *always* want to exit this thread when stop_motion() is called?
-            if self._stop_motion.is_set() and actual_rate == 0.0:
-                return
-
-            last_commanded_rate = actual_rate
-            last_command_time = current_time
-
-            # No limits were enforced, so the target rate has been achieved. Wait for new target.
-            if rate_desired == self._slew_rate_target[axis].value:
-                self._slew_rate_event[axis].clear()
-                self._slew_rate_event[axis].wait()
+            if div_last_commanded == 0:
+                axis_safe_event.set()
 
 
     def slew_rate_to_div(self, rate: float) -> int:
@@ -720,30 +736,14 @@ class Gemini2(object):
         Stops motion on both axes. Blocks until slew rates have reached zero, which may take some
         time depending on the slew rates at the time this is invoked and acceleration limits.
 
-        This method will also attempt to recover if previous commands were interrupted mid-
-        execution, leaving the backend in an inconsistent state. This is desired for this method
-        specifically because it is often invoked in response to catching KeyboardInterrupt in the
-        main thread.
+        There is a possibility of a race condition here due to nuances of multiprocess
+        communication. If the "safe" events are already set when this is called, but the process is
+        just about to send commands to a non-zero slew rate (from previous calls to slew() that are
+        sitting in the pipe), this method could return immediately even though the mount is about
+        to be (briefly) in motion. However this edge case is expected to be relatively unlikely to
+        happen in practice.
         """
-
-        # Throw-away command to clear out any inconsistent state in the backend
-        # TODO: This should no longer be necessary, since the slew rate command thread ignores
-        # exceptions raised by the back-end. Such exceptions *should* also be more rare with
-        # CTRL-C since implementing code that protects the critical section of the back-end from
-        # being interrupted by SIGINT.
-        try:
-            self.echo('a')
-        except Exception:
-            pass
-
-        # informs slew command threads to bring rates to zero and then quit
-        self._stop_motion.set()
-        self._slew_rate_event['ra'].set()
-        self._slew_rate_event['dec'].set()
-
-        # TODO: Is this safe? Maybe we should re-start these threads in case they died unexpectedly?
-        # wait for threads to end
-        if self._slew_rate_threads['ra'].is_alive():
-            self._slew_rate_threads['ra'].join()
-        if self._slew_rate_threads['dec'].is_alive():
-            self._slew_rate_threads['dec'].join()
+        self.slew('ra', 0.0)
+        self.slew('dec', 0.0)
+        self._axis_safe_event['ra'].wait()
+        self._axis_safe_event['dec'].wait()
