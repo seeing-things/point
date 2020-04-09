@@ -104,7 +104,7 @@ class Gemini2(object):
                 )
                 self._slew_rate_processes[axis].start()
         else:
-            now = time.time()
+            now = time.perf_counter()
             self._div_last_commanded = {'ra': 0, 'dec': 0}
             self._time_last_commanded = {'ra': now, 'dec': now}
 
@@ -627,7 +627,7 @@ class Gemini2(object):
         Returns:
             The actual rate commanded.
         """
-        time_current = time.time()
+        time_current = time.perf_counter()
         rate_last_commanded = self.div_to_slew_rate(self._div_last_commanded[axis])
         rate_to_command = self._apply_rate_accel_limit(
             rate_desired,
@@ -668,7 +668,7 @@ class Gemini2(object):
         axis_safe_event.set()
         div_last_commanded = 0
         div_target = 0
-        time_last_commanded = time.time() - 1e-3
+        time_last_commanded = time.perf_counter() - 1e-3
         shutdown = False
 
         while True:
@@ -688,7 +688,7 @@ class Gemini2(object):
                     if div_target == div_last_commanded:
                         continue
 
-            time_current = time.time()
+            time_current = time.perf_counter()
 
             # may not be able to achieve div_target if it exceeds rate accel or step limits
             rate_target = self.div_to_slew_rate(div_target)
