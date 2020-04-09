@@ -4,8 +4,8 @@ import calendar
 from multiprocessing import Process, Event, Pipe
 from multiprocessing.connection import Connection
 import signal
-from typing import Tuple
-import point.gemini_backend
+from typing import Tuple, Optional
+from point.gemini_backend import Gemini2Backend
 from point.gemini_commands import *
 from point.gemini_exceptions import *
 
@@ -50,7 +50,14 @@ class Gemini2(object):
     class ReadTimeoutException(Exception):
         """Raised when read from Gemini times out"""
 
-    def __init__(self, backend, rate_limit=3.0, rate_step_limit=0.25, accel_limit=10.0):
+    def __init__(
+            self,
+            backend: Gemini2Backend,
+            rate_limit: float = 4.0,
+            rate_step_limit: float = 0.5,
+            accel_limit: float = 20.0,
+            use_multiprocessing: bool = False,
+        ):
         """Constructs a Gemini2 object.
 
         Note on slew rate and acceleration limts: Limits are enforced when using high-level
@@ -61,46 +68,58 @@ class Gemini2(object):
         will not function as intended.
 
         Args:
-            backend: A Gemini2Backend object. This can be a Gemini2BackendSerial
-                instance (if using USB serial) or a Gemini2BackendUDP instance
-                (if using UDP datagrams).
-            max_rate: Maximum allowed slew rate in degrees per second. May be
-                set to None to disable enforcement (not recommended).
-            rate_step_limit: Maximum allowed change in slew rate per call to
-                slew() in degrees per second. May be set to None to disable
-                enforcement (not recommended).
-            accel_limit: Acceleration limit in degrees per second squared. May
-                be set to None to disable enforcement (not recommended).
+            backend: This can be a Gemini2BackendSerial instance (if using USB serial) or a
+                Gemini2BackendUDP instance (if using UDP datagrams).
+            max_rate: Maximum allowed slew rate in degrees per second. May be set to None to
+                disable enforcement (not recommended).
+            rate_step_limit: Maximum allowed change in slew rate per call to slew() in degrees per
+                second. May be set to None to disable enforcement (not recommended).
+            accel_limit: Acceleration limit in degrees per second squared. May be set to None to
+                disable enforcement (not recommended).
+            use_multiprocessing: When True, two processes are started that send slew rate commands
+                to the mount asynchronously such that the mount can accelerate and decelerate
+                smoothly without the user needing to call `slew()` repeatedly until a target rate
+                is achieved. When False, each call to `slew()` sends exactly one slew rate command
+                to the mount synchronously and no additional processes are created.
         """
         self._backend = backend
         self._rate_limit = rate_limit
         self._rate_step_limit = rate_step_limit
         self._accel_limit = accel_limit
+        self._use_multiprocessing = use_multiprocessing
         self.set_double_precision()
 
-        self._slew_rate_processes = {}
-        self._slew_rate_target = {}
-        self._axis_safe_event = {}
-        for axis in ['ra', 'dec']:
-            self._axis_safe_event[axis] = Event()
-            rate_target_pipe_recv, rate_target_pipe_send = Pipe(duplex=False)
-            self._slew_rate_target[axis] = rate_target_pipe_send
-            self._slew_rate_processes[axis] = Process(
-                target=self._slew_rate_process,
-                name='Gemini ' + axis.upper() + ' slew rate thread',
-                args=(axis, rate_target_pipe_recv, self._axis_safe_event[axis])
-            )
-            self._slew_rate_processes[axis].start()
+        if use_multiprocessing:
+            self._slew_rate_processes = {}
+            self._slew_rate_target = {}
+            self._axis_safe_event = {}
+            for axis in ['ra', 'dec']:
+                self._axis_safe_event[axis] = Event()
+                rate_target_pipe_recv, rate_target_pipe_send = Pipe(duplex=False)
+                self._slew_rate_target[axis] = rate_target_pipe_send
+                self._slew_rate_processes[axis] = Process(
+                    target=self._slew_rate_process,
+                    name='Gemini ' + axis.upper() + ' slew rate thread',
+                    args=(axis, rate_target_pipe_recv, self._axis_safe_event[axis])
+                )
+                self._slew_rate_processes[axis].start()
+        else:
+            now = time.time()
+            self._div_last_commanded = {'ra': 0, 'dec': 0}
+            self._time_last_commanded = {'ra': now, 'dec': now}
 
     def __del__(self):
         """Shuts down both slew rate command processes."""
-        for axis in ['ra', 'dec']:
-            if self._slew_rate_processes[axis].is_alive():
-                # informs slew command process to bring rates to zero and then quit
-                self._slew_rate_target[axis].send(None)
+        if self._use_multiprocessing:
+            for axis in ['ra', 'dec']:
+                if self._slew_rate_processes[axis].is_alive():
+                    # informs slew command process to bring rates to zero and then quit
+                    self._slew_rate_target[axis].send(None)
 
-        for axis in ['ra', 'dec']:
-            self._slew_rate_processes[axis].join()
+            for axis in ['ra', 'dec']:
+                self._slew_rate_processes[axis].join()
+        else:
+            self.stop_motion()
 
     def exec_cmd(self, cmd):
         return self._backend.execute_one_command(cmd)
@@ -569,8 +588,8 @@ class Gemini2(object):
 
         Returns:
             A tuple containing the actual slew rate target and a bool indicating whether the slew
-            rate limit was exceeded. The actual slew rate target may differ slightly from the
-            desired rate due to quantization error in the divisor setting.
+            rate limit was exceeded. The actual slew rate may differ slightly from the desired rate
+            due to quantization error in the divisor setting or limits that were enforced.
         """
 
         if axis not in ['ra', 'dec']:
@@ -584,16 +603,44 @@ class Gemini2(object):
                 limits_exceeded = True
                 rate = clamp(rate, self._rate_limit)
 
-        # TODO: maybe change this to raise an exception rather than return a bool
-        # raise ValueError(f'{rate:.2f} deg/s exceeds {self._rate_limit:.2f} deg/s limit')
-
-        # quantize the rate
-        rate = self.div_to_slew_rate(self.slew_rate_to_div(rate))
-
-        # send the target rate to the process
-        self._slew_rate_target[axis].send(rate)
+        if self._use_multiprocessing:
+            # quantize the rate and send to the process
+            rate = self.div_to_slew_rate(self.slew_rate_to_div(rate))
+            self._slew_rate_target[axis].send(rate)
+        else:
+            rate, additional_limits_exceeded = self._slew_rate_single(axis, rate)
+            limits_exceeded |= additional_limits_exceeded
 
         return rate, limits_exceeded
+
+
+    def _slew_rate_single(self, axis: str, rate_desired: float) -> Tuple[float, bool]:
+        """Send a single slew-rate command to the specified axis.
+
+        This method is used when multiprocessing is disabled.
+
+        Args:
+            axis: 'ra' or 'dec'
+            rate_desired: The slew rate to set in degrees per second. Actual rate commanded may
+                differ if limits are enforced.
+
+        Returns:
+            The actual rate commanded.
+        """
+        time_current = time.time()
+        rate_last_commanded = self.div_to_slew_rate(self._div_last_commanded[axis])
+        rate_to_command = self._apply_rate_accel_limit(
+            rate_desired,
+            time_current,
+            rate_last_commanded,
+            self._time_last_commanded[axis]
+        )
+        rate_to_command = self._apply_rate_step_limit(rate_to_command, rate_last_commanded)
+        div = self.slew_rate_to_div(rate_to_command)
+        self._set_divisor(axis, div, self._div_last_commanded[axis])
+        self._div_last_commanded[axis] = div
+        self._time_last_commanded[axis] = time_current
+        return self.div_to_slew_rate(div), rate_to_command != rate_desired
 
 
     def _slew_rate_process(self, axis: str, rate_target_pipe: Connection, axis_safe_event: Event):
@@ -618,6 +665,7 @@ class Gemini2(object):
         # TODO: Read initial slew rate from Gemini rather than assuming it is zero
         # Last commanded rate is cached along with the time of last command to enforce acceleration
         # limit
+        axis_safe_event.set()
         div_last_commanded = 0
         div_target = 0
         time_last_commanded = time.time() - 1e-3
@@ -637,28 +685,22 @@ class Gemini2(object):
                     shutdown = True
                 else:
                     div_target = self.slew_rate_to_div(rate_target)
+                    if div_target == div_last_commanded:
+                        continue
 
-            current_time = time.time()
-            time_since_last = current_time - time_last_commanded
+            time_current = time.time()
 
             # may not be able to achieve div_target if it exceeds rate accel or step limits
-            rate_to_command = self.div_to_slew_rate(div_target)
+            rate_target = self.div_to_slew_rate(div_target)
             rate_last_commanded = self.div_to_slew_rate(div_last_commanded)
 
-            # enforce acceleration limit if limit is enabled
-            if self._accel_limit is not None:
-                rate_change = rate_to_command - rate_last_commanded
-                if abs(rate_change) / time_since_last > self._accel_limit:
-                    clamped_rate_change = clamp(rate_change, self._accel_limit * time_since_last)
-                    accel = rate_change / time_since_last
-                    rate_to_command = rate_last_commanded + clamped_rate_change
-
-            # enforce rate step limit if limit is enabled
-            if self._rate_step_limit is not None:
-                rate_change = rate_to_command - rate_last_commanded
-                if abs(rate_change) > self._rate_step_limit:
-                    clamped_rate_change = clamp(rate_change, self._rate_step_limit)
-                    rate_to_command = rate_last_commanded + clamped_rate_change
+            rate_to_command = self._apply_rate_accel_limit(
+                rate_target,
+                time_current,
+                rate_last_commanded,
+                time_last_commanded
+            )
+            rate_to_command = self._apply_rate_step_limit(rate_to_command, rate_last_commanded)
 
             div = self.slew_rate_to_div(rate_to_command)
 
@@ -669,35 +711,108 @@ class Gemini2(object):
                 axis_safe_event.clear()
 
             try:
-                if axis == 'ra':
-                    # Must use the start and stop movement commands on the RA axis because
-                    # achieving zero motion when slew() is called repeatedly with a rate of zero
-                    # can't be accomplished using set_ra_divisor alone.
-                    if div == 0 and div_last_commanded != 0:
-                        self.ra_stop_movement()
-                    elif div != 0 and div_last_commanded == 0:
-                        self.ra_start_movement()
-
-                    # Only set the RA divisor to non-zero values. Setting the RA divisor to 0 will
-                    # cause that axis to advance by exactly one servo step per command which is not
-                    # the desired action.
-                    if div != 0:
-                        # the divisor is negated here to reverse the direction
-                        self.set_ra_divisor(-div)
-                else:
-                    self.set_dec_divisor(div)
+                self._set_divisor(axis, div, div_last_commanded)
             except Gemini2Exception as e:
                 # dangerous to give up because this thread is critical for stopping mount motion
                 # safely; better to keep trying to send commands to the bitter end
                 print(f'Ignoring exception in {axis} slew rate command thread: {str(e)}')
                 continue
 
-            # re-compute rate from divisor so that quantization error is accounted for
             div_last_commanded = div
-            time_last_commanded = current_time
+            time_last_commanded = time_current
 
             if div_last_commanded == 0:
                 axis_safe_event.set()
+
+
+    def _apply_rate_accel_limit(
+            self,
+            rate_desired: float,
+            time_current: float,
+            rate_last_commanded: float,
+            time_last_commanded: float
+        ) -> float:
+        """Apply the slew acceleration limit to the desired rate, if enabled.
+
+        Note that the acceleration limit is only effective if slew rate commands are sent to the
+        mount at a fairly fast and steady rate (~10 Hz or higher).
+
+        Args:
+            rate_desired: The desired slew rate in degrees per second.
+            time_current: The time of the current command as a Unix timestamp.
+            rate_last_commanded: The slew rate that was commanded most recently.
+            time_last_commanded: The time the last commanded slew rate was sent as a Unix
+                timestamp.
+
+        Returns:
+            A slew rate that does not exceed the acceleration limit. If the rate_desired is already
+            within this limit, or if the limit is disabled, rate_desired is returned unmodified.
+            Otherwise the closest rate that complies with the limit is returned.
+        """
+        if self._accel_limit is None:
+            return rate_desired
+
+        time_since_last = time_current - time_last_commanded
+        rate_change_desired = rate_desired - rate_last_commanded
+        if abs(rate_change_desired) / time_since_last > self._accel_limit:
+            rate_change_clamped = clamp(rate_change_desired, self._accel_limit * time_since_last)
+            return rate_last_commanded + rate_change_clamped
+
+        return rate_desired
+
+
+    def _apply_rate_step_limit(self, rate_desired: float, rate_last_commanded: float) -> float:
+        """Apply the slew rate step limit to the desired rate, if enabled.
+
+        Args:
+            rate_desired: The desired slew rate in degrees per second.
+            rate_last_commanded: The slew rate that was commanded most recently.
+
+        Returns:
+            A slew rate that is within the rate step limit of the last commanded rate. If the
+            rate_desired is already within this limit, or if the limit is disabled, rate_desired
+            is returned unmodified. Otherwise the closest rate that complies with the limit is
+            returned.
+        """
+        if self._rate_step_limit is None:
+            return rate_desired
+
+        rate_change_desired = rate_desired - rate_last_commanded
+        if abs(rate_change_desired) > self._rate_step_limit:
+            rate_change_clamped = clamp(rate_change_desired, self._rate_step_limit)
+            return rate_last_commanded + rate_change_clamped
+
+        return rate_desired
+
+
+    def _set_divisor(self, axis: str, div: int, div_last_commanded: Optional[int] = None):
+        """Set the divisor value for one mount axis to control slew rate.
+
+        For the RA axis this also handles sending the stop/start movement commands if needed.
+
+        Args:
+            axis: 'ra' or 'dec'
+            div: Divisor value to set
+            div_last_commanded: For RA axis, this is used to avoid sending stop/start movement
+                commands if they are not necessary.
+        """
+        if axis == 'ra':
+            # Must use the start and stop movement commands on the RA axis because achieving zero
+            # motion when slew() is called repeatedly with a rate of zero can't be accomplished
+            # using set_ra_divisor alone.
+            if div == 0 and (div_last_commanded is None or div_last_commanded != 0):
+                self.ra_stop_movement()
+            elif div != 0 and (div_last_commanded is None or div_last_commanded == 0):
+                self.ra_start_movement()
+
+            # Only set the RA divisor to non-zero values. Setting the RA divisor to 0 will cause
+            # that axis to advance by exactly one servo step per command which is not the desired
+            # action.
+            if div != 0:
+                # the divisor is negated here to reverse the direction
+                self.set_ra_divisor(-div)
+        else:
+            self.set_dec_divisor(div)
 
 
     def slew_rate_to_div(self, rate: float) -> int:
@@ -736,14 +851,27 @@ class Gemini2(object):
         Stops motion on both axes. Blocks until slew rates have reached zero, which may take some
         time depending on the slew rates at the time this is invoked and acceleration limits.
 
-        There is a possibility of a race condition here due to nuances of multiprocess
-        communication. If the "safe" events are already set when this is called, but the process is
-        just about to send commands to a non-zero slew rate (from previous calls to slew() that are
-        sitting in the pipe), this method could return immediately even though the mount is about
-        to be (briefly) in motion. However this edge case is expected to be relatively unlikely to
-        happen in practice.
+        There is a possibility of a race condition here with multiprocessing enabled due to nuances
+        of multiprocess communication. If the "safe" events are already set when this is called,
+        but the process is just about to send commands to a non-zero slew rate (from previous calls
+        to slew() that are sitting in the pipe), this method could return immediately even though
+        the mount is about to be (briefly) in motion. However this edge case is expected to be
+        relatively unlikely to happen in practice.
         """
-        self.slew('ra', 0.0)
-        self.slew('dec', 0.0)
-        self._axis_safe_event['ra'].wait()
-        self._axis_safe_event['dec'].wait()
+        if self._use_multiprocessing == True:
+            self.slew('ra', 0.0)
+            self.slew('dec', 0.0)
+            self._axis_safe_event['ra'].wait()
+            self._axis_safe_event['dec'].wait()
+        else:
+            while True:
+                try:
+                    (actual_rate_ra, limits_exceeded) = self.slew('ra', 0.0)
+                    (actual_rate_dec, limits_exceeded) = self.slew('dec', 0.0)
+                except Gemini2Exception as e:
+                    # dangerous to give up because this is critical for stopping mount motion
+                    # safely; better to keep trying to send commands to the bitter end
+                    print(f'Ignoring exception in stop_motion: {str(e)}')
+                    continue
+                if actual_rate_ra == 0.0 and actual_rate_dec == 0.0:
+                    return
