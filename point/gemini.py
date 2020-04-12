@@ -145,7 +145,7 @@ class Gemini2(object):
 
     def startup_check(self):
         """Check startup state and type of mount."""
-        return self.exec_cmd(G2Cmd_StartupCheck()).get()
+        return self.exec_cmd(G2Cmd_StartupCheck())[0].get()
 
     def select_startup_mode(self, mode):
         self.exec_cmd(G2Cmd_SelectStartupMode(mode))
@@ -154,7 +154,8 @@ class Gemini2(object):
     ### Macro Commands
 
     def enq_macro(self):
-        return self.exec_cmd(G2Cmd_MacroENQ()).get()
+        resp, time_resp = self.exec_cmd(G2Cmd_MacroENQ())
+        return resp.get(), time_resp
 
 
     ### Synchronization Commands

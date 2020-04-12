@@ -1,4 +1,5 @@
 from abc import *
+import time
 import serial
 import socket
 import struct
@@ -201,6 +202,7 @@ class Gemini2BackendUDP(Gemini2Backend):
             did_retry = False
             try:
                 buf_resp = self._sock.recv(self.UDP_RECV_BUF_SIZE)
+                time_resp = time.time()
             except socket.timeout:
                 # NOTE: our NACK handling has one edge case where it may work wrong:
                 # if the original reply DOES eventually come back, but just late, then we'll probably
@@ -216,6 +218,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                     self._stats['dgram_nack_tx'] += 1
                     try:
                         buf_resp = self._sock.recv(self.UDP_RECV_BUF_SIZE)
+                        time_resp = time.time()
                     except socket.timeout:
                         pass
                     else:
@@ -277,7 +280,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                     raise G2BackendResponseError('response was decoded, but only {:d} of the {:d} available characters were consumed'.format(len_consumed, len(buf_resp)))
 
             self._stats['cmd_exec'] += 1
-            return resp
+            return resp, time_resp
 
     def execute_multiple_commands(self, *cmds):
         # TODO: implement this!
