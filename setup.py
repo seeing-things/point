@@ -15,7 +15,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.3.4',
+    version='0.4.0',
 
     description='Serial command interfaces for telescopes',
     long_description=long_description,
@@ -29,7 +29,7 @@ setup(
 
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'Topic :: Scientific/Engineering :: Astronomy',
         'License :: OSI Approved :: MIT License',

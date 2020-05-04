@@ -3,6 +3,9 @@ import serial
 import socket
 import struct
 import string
+import signal
+import multiprocessing
+import threading
 import point.gemini_commands
 from point.gemini_exceptions import *
 
@@ -154,7 +157,17 @@ class Gemini2BackendUDP(Gemini2Backend):
         self._stats['dgram_nack_tx'] = 0
         self._stats['dgram_nack_rx'] = 0
 
+        self._command_lock = multiprocessing.Lock()
+
     def execute_one_command(self, cmd):
+        self._command_lock.acquire()
+        try:
+            resp = self._execute_one_command(cmd)
+        finally:
+            self._command_lock.release()
+        return resp
+
+    def _execute_one_command(self, cmd):
         if not cmd.valid_for_udp():
             raise G2BackendCommandNotSupportedError('command {:s} is not supported on the UDP backend'.format(cmd.__class__.__name__))
 
