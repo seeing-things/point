@@ -583,15 +583,27 @@ class Gemini2(object):
         """Set slew rate for one mount axis.
 
         This slew command allows changes to the slew rate on the fly, in contrast to move commands
-        which do not. To allow for enforcement of acceleration limits while providing smooth
-        acceleration, the actual commands to the mount are sent rapidly in a separate thread until
-        the desired rate is achieved. This method does not block, so the desired rate is not
-        guaranteed to be achieved before it returns.
+        which do not.
+
+        When multiprocessing is enabled the actual commands to the mount are sent rapidly in a
+        separate process until the desired rate is achieved to allow for enforcement of
+        acceleration limits while providing smooth acceleration. In multiprocessing mode this
+        method does not block, so the desired rate may not be achieved until some time after this
+        method returns.
+
+        When multiprocessing is disabled this method is blocking and will not return until the
+        command to the mount has been sent. For all but the smallest rate changes acceleration
+        limits will likely prevent achieving the desired slew rate in a single call so multiple
+        calls may be required until the desired rate is achieved.
 
         Args:
             axis: Axis to which this applies, 'ra' or 'dec'.
-            rate: Slew rate in degrees per second. For the RA axis, positive values move east,
-                toward increasing right ascension.
+            rate: Slew rate target in degrees per second. When multiprocessing is enabled the mount
+                will accelerate until this rate is achieved as long as the rate does not exceed the
+                rate limit. When multiprocessing is disabled this method will send a slew rate
+                command that is as close as possible to this value subject to acceleration and
+                rate step limits. For the RA axis, positive values move east, toward increasing
+                right ascension.
 
         Returns:
             A tuple containing the actual slew rate target and a bool indicating whether the slew
