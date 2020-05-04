@@ -1,7 +1,7 @@
 import datetime
 import time
 import calendar
-from multiprocessing import Process, Event, Pipe
+from multiprocessing import Process, Event, Pipe, Value
 from multiprocessing.connection import Connection
 import signal
 from typing import Tuple, Optional
@@ -92,15 +92,22 @@ class Gemini2(object):
         if use_multiprocessing:
             self._slew_rate_processes = {}
             self._slew_rate_target = {}
+            self._div_last_commanded = {}
             self._axis_safe_event = {}
             for axis in ['ra', 'dec']:
                 self._axis_safe_event[axis] = Event()
                 rate_target_pipe_recv, rate_target_pipe_send = Pipe(duplex=False)
+                self._div_last_commanded[axis] = Value('l', 0)
                 self._slew_rate_target[axis] = rate_target_pipe_send
                 self._slew_rate_processes[axis] = Process(
                     target=self._slew_rate_process,
                     name='Gemini ' + axis.upper() + ' slew rate thread',
-                    args=(axis, rate_target_pipe_recv, self._axis_safe_event[axis])
+                    args=(
+                        axis,
+                        rate_target_pipe_recv,
+                        self._axis_safe_event[axis],
+                        self._div_last_commanded[axis],
+                    ),
                 )
                 self._slew_rate_processes[axis].start()
         else:
@@ -614,6 +621,26 @@ class Gemini2(object):
         return rate, limits_exceeded
 
 
+    def get_slew_rate(self, axis: str) -> float:
+        """Get current slew rate for a mount axis.
+
+        This method gets the current slew rate for one mount axis. The slew rate cannot be queried
+        from the mount directly, so the implementation returns the cached value from the last
+        slew rate divisor commands that were sent to the mount.
+
+        Args:
+            axis: Axis to which this applies, 'ra' or 'dec'.
+
+        Returns:
+            The current slew rate of the mount axis in degrees per second.
+        """
+        if self._use_multiprocessing == True:
+            div = self._div_last_commanded[axis].value
+        else:
+            div = self._div_last_commanded[axis]
+        return self.div_to_slew_rate(div)
+
+
     def _slew_rate_single(self, axis: str, rate_desired: float) -> Tuple[float, bool]:
         """Send a single slew-rate command to the specified axis.
 
@@ -643,7 +670,13 @@ class Gemini2(object):
         return self.div_to_slew_rate(div), rate_to_command != rate_desired
 
 
-    def _slew_rate_process(self, axis: str, rate_target_pipe: Connection, axis_safe_event: Event):
+    def _slew_rate_process(
+            self,
+            axis: str,
+            rate_target_pipe: Connection,
+            axis_safe_event: Event,
+            div_last_commanded_shared: Value,
+        ):
         """Process for sending slew rate commands continuously until a target rate is achieved.
 
         This process helps the mount to accelerate smoothly, since this requires sending commands
@@ -657,17 +690,19 @@ class Gemini2(object):
                 slew rate target values are sent. Rates are in degrees per second.
             axis_safe_event: When the axis is safed, meaning that motion is stopped, this event
                 will be set. Otherwise, it will be cleared.
+            div_last_commanded_shared: Shared memory storing the divisor value most recently
+                commanded for this mount axis.
         """
 
         # Ignore SIGINT in this process (will be handled in main process)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-        # TODO: Read initial slew rate from Gemini rather than assuming it is zero
         # Last commanded rate is cached along with the time of last command to enforce acceleration
-        # limit
+        # limit. Keep local copy of last commanded divisor to avoid accessing shared memory more
+        # than necessary.
         axis_safe_event.set()
-        div_last_commanded = 0
         div_target = 0
+        div_last_commanded = div_last_commanded_shared.value
         time_last_commanded = time.perf_counter() - 1e-3
         shutdown = False
 
@@ -718,6 +753,7 @@ class Gemini2(object):
                 print(f'Ignoring exception in {axis} slew rate command thread: {str(e)}')
                 continue
 
+            div_last_commanded_shared.value = div
             div_last_commanded = div
             time_last_commanded = time_current
 
