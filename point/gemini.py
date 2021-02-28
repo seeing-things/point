@@ -117,16 +117,29 @@ class Gemini2(object):
 
     def __del__(self):
         """Shuts down both slew rate command processes."""
+        print('In Gemini2 destructor')
         if self._use_multiprocessing:
-            for axis in ['ra', 'dec']:
-                if self._slew_rate_processes[axis].is_alive():
-                    # informs slew command process to bring rates to zero and then quit
-                    self._slew_rate_target[axis].send(None)
+            try:
+                for axis in ['ra', 'dec']:
+                    if self._slew_rate_processes[axis].is_alive():
+                        print(f'In Gemini2 destructor: {axis} process is alive, sending None to pipe')
+                        # informs slew command process to bring rates to zero and then quit
+                        self._slew_rate_target[axis].send(None)
+                    else:
+                        print(f'In Gemini2 destructor: {axis} process is already dead')
 
-            for axis in ['ra', 'dec']:
-                self._slew_rate_processes[axis].join()
+                print('Finished sending None to both axis processes')
+                for axis in ['ra', 'dec']:
+                    print(f'Joining process for {axis} axis')
+                    self._slew_rate_processes[axis].join()
+                    print(f'Join returned for {axis}')
+            except AttributeError:
+                # probably means an exception occurred in constructor before process creation
+                pass
         else:
             self.stop_motion()
+
+        print('returning from Gemini2 destructor')
 
     def exec_cmd(self, cmd):
         return self._backend.execute_one_command(cmd)
@@ -706,6 +719,8 @@ class Gemini2(object):
                 commanded for this mount axis.
         """
 
+        print(f'Entering _slew_rate_process for {axis}')
+
         # Ignore SIGINT in this process (will be handled in main process)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
@@ -720,7 +735,9 @@ class Gemini2(object):
 
         while True:
             if shutdown == True:
+                print(f'shutdown == True for {axis}')
                 if div_last_commanded == 0:
+                    print(f'div_last_commanded == 0, returning from {axis}')
                     return
             # only try to receive from the pipe if a new rate target is waiting or if the last-
             # received rate target has been achieved, in which case we want to block
@@ -728,6 +745,7 @@ class Gemini2(object):
                 rate_target = rate_target_pipe.recv()
                 # None is a special value indicating that it is time to shut down this process
                 if rate_target is None:
+                    print(f'rate_target is None for {axis}, setting div_target to 0 and shutdown to True')
                     div_target = 0
                     shutdown = True
                 else:
@@ -906,11 +924,15 @@ class Gemini2(object):
         the mount is about to be (briefly) in motion. However this edge case is expected to be
         relatively unlikely to happen in practice.
         """
+        print('stop motion called')
         if self._use_multiprocessing == True:
             self.slew('ra', 0.0)
             self.slew('dec', 0.0)
+            print('called slew() with rate 0 on both axes, waiting on events')
             self._axis_safe_event['ra'].wait()
+            print('RA axis event is set')
             self._axis_safe_event['dec'].wait()
+            print('DEC axis event is set')
         else:
             while True:
                 try:
@@ -923,3 +945,5 @@ class Gemini2(object):
                     continue
                 if actual_rate_ra == 0.0 and actual_rate_dec == 0.0:
                     return
+
+        print('returning from stop_motion()')
