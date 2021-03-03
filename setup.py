@@ -43,6 +43,6 @@ setup(
     python_requires='>=3.6',
 
     install_requires=[
-        'pyserial>=3.0',
+        'pyserial>=3.0,<=3.4',  # 3.5 made compatibility-breaking changes to read_until()
     ],
 )
