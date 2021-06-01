@@ -1,0 +1,53 @@
+# This workflow runs pylint
+# https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Lint
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pylint-everything:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        python: [3.8, 3.9]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies  # pylint does require dependencies to be installed
+      run: |
+        python -m pip install --upgrade pip
+        pip install pylint
+        pip install .
+    - name: Lint with pylint
+      run: |
+        pylint point/
+
+
+  pylint-enforced:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        python: [3.8, 3.9]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies  # pylint does require dependencies to be installed
+      run: |
+        python -m pip install --upgrade pip
+        pip install pylint
+        pip install .
+    # Files listed here are the ones that already pass pylint
+    - name: Lint with pylint
+      run: |
+        pylint point/nexstar.py
+        pylint point/gemini_exceptions.py
