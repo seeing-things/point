@@ -1,3 +1,4 @@
+import atexit
 import datetime
 import time
 import calendar
@@ -115,18 +116,9 @@ class Gemini2(object):
             self._div_last_commanded = {'ra': 0, 'dec': 0}
             self._time_last_commanded = {'ra': now, 'dec': now}
 
-    def __del__(self):
-        """Shuts down both slew rate command processes."""
-        if self._use_multiprocessing:
-            for axis in ['ra', 'dec']:
-                if self._slew_rate_processes[axis].is_alive():
-                    # informs slew command process to bring rates to zero and then quit
-                    self._slew_rate_target[axis].send(None)
-
-            for axis in ['ra', 'dec']:
-                self._slew_rate_processes[axis].join()
-        else:
-            self.stop_motion()
+        # ensure shutdown is called on exit even if nothing else called it
+        self.shutdown_complete = False
+        atexit.register(self.shutdown)
 
     def exec_cmd(self, cmd):
         return self._backend.execute_one_command(cmd)
@@ -719,9 +711,8 @@ class Gemini2(object):
         shutdown = False
 
         while True:
-            if shutdown == True:
-                if div_last_commanded == 0:
-                    return
+            if shutdown and div_last_commanded == 0:
+                return
             # only try to receive from the pipe if a new rate target is waiting or if the last-
             # received rate target has been achieved, in which case we want to block
             elif rate_target_pipe.poll() or div_last_commanded == div_target:
@@ -923,3 +914,30 @@ class Gemini2(object):
                     continue
                 if actual_rate_ra == 0.0 and actual_rate_dec == 0.0:
                     return
+
+    def shutdown(self):
+        """Brings mount into a safe state in preparation for program end.
+
+        This is similar to `stop_motion()` but when multiprocessing is enabled this will also shut
+        down the processes, which will prevent any further slewing.
+
+        This method will only perform actions the first time it is called. Subsequent calls will
+        return immediately.
+        """
+        if self.shutdown_complete:
+            # Should already be shutdown and disconnected; trying to send commands to stop motion
+            # in this state will cause IO exceptions to be raised.
+            return
+
+        if self._use_multiprocessing:
+            for axis in ['ra', 'dec']:
+                if self._slew_rate_processes[axis].is_alive():
+                    # informs slew command process to bring rates to zero and then quit
+                    self._slew_rate_target[axis].send(None)
+
+            for axis in ['ra', 'dec']:
+                self._slew_rate_processes[axis].join()
+        else:
+            self.stop_motion()
+
+        self.shutdown_complete = True
