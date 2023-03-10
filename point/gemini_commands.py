@@ -237,7 +237,7 @@ class Gemini2Command_Native(Gemini2Command):
         assert sys.version_info[0] >= 3 # our string type check below is incompatible with Python 2
         if params is None:
             return ''
-        elif isinstance(params, collections.Iterable) and (not isinstance(params, str)):
+        elif isinstance(params, collections.abc.Iterable) and (not isinstance(params, str)):
             for param in params:
                 self._check_validity(str(param))
             return ':'.join(params)
