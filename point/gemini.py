@@ -1,3 +1,4 @@
+from __future__ import annotations
 import atexit
 import datetime
 import time
@@ -31,7 +32,7 @@ def clamp(val, limit):
     return max(min(limit, val), -limit)
 
 
-class Gemini2(object):
+class Gemini2:
     """Implements serial and UDP command interfaces for Gemini 2.
 
     This class implements the command interface supported by the Gemini 2
@@ -119,6 +120,14 @@ class Gemini2(object):
         # ensure shutdown is called on exit even if nothing else called it
         self.shutdown_complete = False
         atexit.register(self.shutdown)
+
+    def __enter__(self) -> Gemini2:
+        """Support usage of this class in `with` statements."""
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Stop motion and disconnect from the mount."""
+        self.shutdown()
 
     def exec_cmd(self, cmd):
         return self._backend.execute_one_command(cmd)
@@ -916,10 +925,12 @@ class Gemini2(object):
                     return
 
     def shutdown(self):
-        """Brings mount into a safe state in preparation for program end.
+        """Brings mount into a safe state in preparation for program end and disconnects.
 
-        This is similar to `stop_motion()` but when multiprocessing is enabled this will also shut
-        down the processes, which will prevent any further slewing.
+        This is similar to `stop_motion()` but with the following additions:
+        1) When multiprocessing is enabled this will also shut down the processes, which will
+           prevent any further slewing.
+        2) Disconnects from the hardware and frees associated system resources.
 
         This method will only perform actions the first time it is called. Subsequent calls will
         return immediately.
@@ -940,4 +951,5 @@ class Gemini2(object):
         else:
             self.stop_motion()
 
+        self._backend.disconnect()
         self.shutdown_complete = True

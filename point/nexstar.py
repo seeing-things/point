@@ -6,6 +6,7 @@ http://www.nexstarsite.com/download/manuals/NexStarCommunicationProtocolV1.2.zip
 """
 
 
+from __future__ import annotations
 import datetime
 import calendar
 import serial
@@ -43,14 +44,28 @@ class NexStar:
         """
         self.serial = serial.Serial(device, baudrate=9600, timeout=read_timeout)
 
-    def __del__(self):
-        """Destructs a NexStar object.
+    def __enter__(self) -> NexStar:
+        """Support usage of this class in `with` statements."""
+        return self
 
-        Any GOTO in progress will be cancelled and any active slewing will be stopped.
+    def __exit__(self, exc_type, exc_value, traceback):
+        """See `shutdown()` docstring."""
+        self.shutdown()
+
+    def shutdown(self):
+        """Brings mount into a safe state in preparation for program end and disconnects.
+
+        Does the following:
+        1) Cancels any GOTO in progress,
+        2) Stops any active slew by setting slew rates to zero,
+        3) Closes the serial connection to the mount.
+
+        Like other commands this does not block until the requested slew rate is achieved.
         """
         self.cancel_goto()
         self.slew_fixed('az', 0)
         self.slew_fixed('alt', 0)
+        self.serial.close()
 
     def _send_command(self, command, response_len=None):
         """Sends a command to the NexStar hand controller and reads back the response.

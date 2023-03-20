@@ -1,4 +1,5 @@
-from abc import *
+from __future__ import annotations
+from abc import ABC, abstractmethod
 import serial
 import socket
 import struct
@@ -11,6 +12,19 @@ from point.gemini_exceptions import *
 
 
 class Gemini2Backend(ABC):
+
+    def __enter__(self) -> Gemini2Backend:
+        """Support usage of this class in `with` statements."""
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Disconnect and release associated resources."""
+        self.disconnect()
+
+    @abstractmethod
+    def disconnect(self) -> None:
+        """Disconnect from hardware and release any associated resources."""
+
     @abstractmethod
     def execute_one_command(self, cmd):
         pass
@@ -33,6 +47,10 @@ class Gemini2BackendSerial(Gemini2Backend):
         # TODO: set baud to 115.2k or whatever here
         self._serial = serial.Serial(devname, timeout=self._timeout)
         self._serial.reset_input_buffer()
+
+    def disconnect(self) -> None:
+        """Disconnect from the serial port."""
+        self._serial.close()
 
     def execute_one_command(self, cmd):
         if not cmd.valid_for_serial():
@@ -158,6 +176,10 @@ class Gemini2BackendUDP(Gemini2Backend):
         self._stats['dgram_nack_rx'] = 0
 
         self._command_lock = multiprocessing.Lock()
+
+    def disconnect(self) -> None:
+        """Close the socket connection."""
+        self._sock.close()
 
     def execute_one_command(self, cmd):
         self._command_lock.acquire()
