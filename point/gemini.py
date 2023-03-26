@@ -3,6 +3,7 @@ import atexit
 import datetime
 import time
 import calendar
+import multiprocessing
 from multiprocessing import Process, Event, Pipe, Value
 from multiprocessing.connection import Connection
 import signal
@@ -710,6 +711,9 @@ class Gemini2:
         # Ignore SIGINT in this process (will be handled in main process)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
+        current_process = multiprocessing.current_process()
+        parent_process = multiprocessing.parent_process()
+
         # Last commanded rate is cached along with the time of last command to enforce acceleration
         # limit. Keep local copy of last commanded divisor to avoid accessing shared memory more
         # than necessary.
@@ -722,18 +726,35 @@ class Gemini2:
         while True:
             if shutdown and div_last_commanded == 0:
                 return
-            # only try to receive from the pipe if a new rate target is waiting or if the last-
-            # received rate target has been achieved, in which case we want to block
-            elif rate_target_pipe.poll() or div_last_commanded == div_target:
-                rate_target = rate_target_pipe.recv()
-                # None is a special value indicating that it is time to shut down this process
-                if rate_target is None:
+
+            if not shutdown:
+
+                # Don't become a zombie.
+                if not parent_process.is_alive():
+                    print(f'Parent process with PID {parent_process.pid} is dead; '
+                          f'child with PID {current_process.pid} is shutting down.')
                     div_target = 0
                     shutdown = True
-                else:
-                    div_target = self.slew_rate_to_div(rate_target)
-                    if div_target == div_last_commanded:
-                        continue
+                    continue
+
+                # Use a finite timeout here such that parent process aliveness is checked regularly.
+                # If parent process dies this could block forever without a timeout. Can only
+                # afford to wait here if the previous target rate is already achieved.
+                if rate_target_pipe.poll(timeout=1.0 if div_target == div_last_commanded else 0.0):
+
+                    # Shouldn't block since poll() returned True.
+                    rate_target = rate_target_pipe.recv()
+
+                    # None is a special value indicating that it is time to shut down this process
+                    if rate_target is None:
+                        div_target = 0
+                        shutdown = True
+                    else:
+                        div_target = self.slew_rate_to_div(rate_target)
+
+                if div_target == div_last_commanded:
+                    # Already at the target rate; no need to send new commands.
+                    continue
 
             time_current = time.perf_counter()
 
