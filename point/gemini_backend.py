@@ -4,10 +4,7 @@ import serial
 import socket
 import struct
 import string
-import signal
 import multiprocessing
-import threading
-import point.gemini_commands
 from point.gemini_exceptions import (
     G2BackendCommandNotSupportedError,
     G2BackendResponseError,
@@ -211,7 +208,7 @@ class Gemini2BackendUDP(Gemini2Backend):
         self._sock.settimeout(self._timeout)
         self._sock.bind(self._local_addr)
 
-        self._stats = dict()
+        self._stats = {}
         self._stats['cmd_exec'] = 0
         self._stats['dgram_cmd_tx'] = 0
         self._stats['dgram_cmd_rx'] = 0
@@ -286,7 +283,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                 while True:
                     if retry_num >= self._retry_limit:
                         raise G2BackendReadTimeoutError(
-                            'gave up after {:d} NACK retry attempts'.format(retry_num)
+                            f'gave up after {retry_num:d} NACK retry attempts'
                         )
                     retry_num += 1
                     self._seqnum += 1
@@ -376,7 +373,7 @@ class Gemini2BackendUDP(Gemini2Backend):
 
             resp = cmd.response()
             if len(buf_resp) == 1 and buf_resp[0] == '\x06':
-                if not resp is None:
+                if resp is not None:
                     raise G2BackendResponseError(
                         'received ACK (no response), but command {:s} expected to'
                         ' receive response {:s}'.format(
