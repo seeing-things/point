@@ -6,7 +6,10 @@ A simple script for sending raw serial commands to Gemini.
 
 import time
 import serial
-import readline
+# Importing readline enables command history when using `input()`, even when
+# not used directly.
+import readline  # noqa: F401
+
 
 def main():
 
@@ -47,6 +50,7 @@ def main():
         reply = ser.read(ser.in_waiting).decode()
         if len(reply) > 0:
             print('reply: ' + reply)
+
 
 if __name__ == "__main__":
     main()
