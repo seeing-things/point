@@ -85,7 +85,7 @@ class G2CommandParameterTypeError(G2CommandParameterError):
     def __init__(self, *types):
         if len(types) == 1:
             super().__init__(
-                'command expects 1 parameter with type {:s}'.format(types[0])
+                f'command expects 1 parameter with type {types[0]:s}'
             )
         else:
             super().__init__(
@@ -153,7 +153,7 @@ class G2ResponseIntegerParseError(G2ResponseParseError):
     """Raised when a response cannot be parsed as an integer."""
 
     def __init__(self, string):
-        super().__init__('failed to parse \'{:s}\' as integer'.format(string))
+        super().__init__(f'failed to parse \'{string:s}\' as integer')
 
 
 class G2ResponseAngleParseError(G2ResponseParseError):
@@ -192,7 +192,7 @@ class G2ResponseIPv4AddressParseError(G2ResponseParseError):
     """Raised when a response cannot be parsed as an IPv4 address."""
 
     def __init__(self, string):
-        super().__init__('failed to parse \'{:s}\' as IPv4 address'.format(string))
+        super().__init__(f'failed to parse \'{string:s}\' as IPv4 address')
 
 
 class G2ResponseBoundsViolation(G2ResponseException):
