@@ -1,6 +1,7 @@
 from __future__ import annotations
 import atexit
 import datetime
+import ipaddress
 import time
 import calendar
 import multiprocessing
@@ -9,8 +10,38 @@ from multiprocessing.connection import Connection
 import signal
 from typing import Tuple, Optional
 from point.gemini_backend import Gemini2Backend
-from point.gemini_commands import *
-from point.gemini_exceptions import *
+from point.gemini_commands import (
+    G2Cmd_AlignToObject,
+    G2Cmd_DEC_Divisor_Set,
+    G2Cmd_DEC_StartStop_Set,
+    G2Cmd_Echo,
+    G2Cmd_GetPrecision,
+    G2Cmd_GetStoredSite,
+    G2Cmd_MacroENQ,
+    G2Cmd_NTPServerAddr_Get,
+    G2Cmd_NTPServerAddr_Set,
+    G2Cmd_PECBootPlayback_Get,
+    G2Cmd_PECBootPlayback_Set,
+    G2Cmd_PECReplayOff_Set,
+    G2Cmd_PECReplayOn_Set,
+    G2Cmd_PECStatus_Get,
+    G2Cmd_PECStatus_Set,
+    G2Cmd_RA_Divisor_Set,
+    G2Cmd_RA_StartStop_Set,
+    G2Cmd_SelectStartupMode,
+    G2Cmd_SetDblPrecision,
+    G2Cmd_SetObjectDec,
+    G2Cmd_SetObjectName,
+    G2Cmd_SetObjectRA,
+    G2Cmd_SetSiteLatitude,
+    G2Cmd_SetSiteLongitude,
+    G2Cmd_SetStoredSite,
+    G2Cmd_StartupCheck,
+    G2Cmd_SyncToObject,
+    G2Cmd_TogglePrecision,
+    G2Stopped,
+)
+from point.gemini_exceptions import Gemini2Exception
 
 
 __all__ = ['Gemini2']
@@ -54,36 +85,38 @@ class Gemini2:
         """Raised when read from Gemini times out"""
 
     def __init__(
-            self,
-            backend: Gemini2Backend,
-            rate_limit: float = 4.0,
-            rate_step_limit: float = 0.5,
-            accel_limit: float = 20.0,
-            use_multiprocessing: bool = False,
-        ):
+        self,
+        backend: Gemini2Backend,
+        rate_limit: float = 4.0,
+        rate_step_limit: float = 0.5,
+        accel_limit: float = 20.0,
+        use_multiprocessing: bool = False,
+    ):
         """Constructs a Gemini2 object.
 
-        Note on slew rate and acceleration limts: Limits are enforced when using high-level
-        commands such as slew() and stop_motion(). Low-level commands that set the divisors do not
-        respect limits. Acceleration and slew step size limits also depend on memory of the most
-        recently commanded rates which are cached in this object. If the rates are changed by
-        low-level commands or by means other than calls to slew() or stop_motion() these limits
-        will not function as intended.
+        Note on slew rate and acceleration limts: Limits are enforced when using high-
+        level commands such as slew() and stop_motion(). Low-level commands that set the
+        divisors do not respect limits. Acceleration and slew step size limits also
+        depend on memory of the most recently commanded rates which are cached in this
+        object. If the rates are changed by low-level commands or by means other than
+        calls to slew() or stop_motion() these limits will not function as intended.
 
         Args:
-            backend: This can be a Gemini2BackendSerial instance (if using USB serial) or a
-                Gemini2BackendUDP instance (if using UDP datagrams).
-            max_rate: Maximum allowed slew rate in degrees per second. May be set to None to
-                disable enforcement (not recommended).
-            rate_step_limit: Maximum allowed change in slew rate per call to slew() in degrees per
-                second. May be set to None to disable enforcement (not recommended).
-            accel_limit: Acceleration limit in degrees per second squared. May be set to None to
-                disable enforcement (not recommended).
-            use_multiprocessing: When True, two processes are started that send slew rate commands
-                to the mount asynchronously such that the mount can accelerate and decelerate
-                smoothly without the user needing to call `slew()` repeatedly until a target rate
-                is achieved. When False, each call to `slew()` sends exactly one slew rate command
-                to the mount synchronously and no additional processes are created.
+            backend: This can be a Gemini2BackendSerial instance (if using USB serial)
+                or a Gemini2BackendUDP instance (if using UDP datagrams).
+            max_rate: Maximum allowed slew rate in degrees per second. May be set to
+                None to disable enforcement (not recommended).
+            rate_step_limit: Maximum allowed change in slew rate per call to slew() in
+                degrees per second. May be set to None to disable enforcement (not
+                recommended).
+            accel_limit: Acceleration limit in degrees per second squared. May be set to
+                None to disable enforcement (not recommended).
+            use_multiprocessing: When True, two processes are started that send slew
+                rate commands to the mount asynchronously such that the mount can
+                accelerate and decelerate smoothly without the user needing to call
+                `slew()` repeatedly until a target rate is achieved. When False, each
+                call to `slew()` sends exactly one slew rate command to the mount
+                synchronously and no additional processes are created.
         """
         self._backend = backend
         self._rate_limit = rate_limit
@@ -136,12 +169,10 @@ class Gemini2:
     def exec_cmds(self, *cmds):
         return self._backend.execute_multiple_commands(*cmds)
 
-
     ## Commands
     # All commands in the following sections are placed in the same order as
     # they appear in the serial command reference page:
     # http://www.gemini-2.com/web/L5V2_1serial.html
-
 
     ### Special Commands
 
@@ -152,12 +183,10 @@ class Gemini2:
     def select_startup_mode(self, mode):
         self.exec_cmd(G2Cmd_SelectStartupMode(mode))
 
-
     ### Macro Commands
 
     def enq_macro(self):
         return self.exec_cmd(G2Cmd_MacroENQ()).get()
-
 
     ### Synchronization Commands
 
@@ -174,272 +203,265 @@ class Gemini2:
         return self.exec_cmd(G2Cmd_SyncToObject()).get()
 
     # TODO: reimplement this
-#    def select_pointing_model(self, num):
-#        """Select a pointing model (0 or 1)."""
-#        return int(self.lx200_cmd('C' + chr(num), expect_reply=True))
+    #    def select_pointing_model(self, num):
+    #        """Select a pointing model (0 or 1)."""
+    #        return int(self.lx200_cmd('C' + chr(num), expect_reply=True))
 
     # TODO: reimplement this
-#    def select_pointing_model_for_io(self):
-#        """Selects the active pointing model for I/O access."""
-#        return int(self.lx200_cmd('Cc', expect_reply=True))
+    #    def select_pointing_model_for_io(self):
+    #        """Selects the active pointing model for I/O access."""
+    #        return int(self.lx200_cmd('Cc', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_pointing_model(self):
-#        """Get number of active pointing model (0 or 1)."""
-#        return int(self.lx200_cmd('C?', expect_reply=True))
+    #    def get_pointing_model(self):
+    #        """Get number of active pointing model (0 or 1)."""
+    #        return int(self.lx200_cmd('C?', expect_reply=True))
 
     # TODO: reimplement this
-#    def init_align(self):
-#        """Perform Initial Align with selected object."""
-#        return self.lx200_cmd('CI', expect_reply=True)
+    #    def init_align(self):
+    #        """Perform Initial Align with selected object."""
+    #        return self.lx200_cmd('CI', expect_reply=True)
 
     # TODO: reimplement this
-#    def reset_model(self):
-#        """Resets the currently selected model."""
-#        return int(self.lx200_cmd('CR', expect_reply=True))
+    #    def reset_model(self):
+    #        """Resets the currently selected model."""
+    #        return int(self.lx200_cmd('CR', expect_reply=True))
 
     # TODO: reimplement this
-#    def reset_last_align(self):
-#        """Resets the last alignment of currently selected model."""
-#        return int(self.lx200_cmd('CU', expect_reply=True))
-
+    #    def reset_last_align(self):
+    #        """Resets the last alignment of currently selected model."""
+    #        return int(self.lx200_cmd('CU', expect_reply=True))
 
     ### Focus Control Commands
 
     # TODO: reimplement this
-#    def focus_in(self):
-#        self.lx200_cmd('F+')
+    #    def focus_in(self):
+    #        self.lx200_cmd('F+')
 
     # TODO: reimplement this
-#    def focus_out(self):
-#        self.lx200_cmd('F-')
+    #    def focus_out(self):
+    #        self.lx200_cmd('F-')
 
     # TODO: reimplement this
-#    def focus_stop(self):
-#        self.lx200_cmd('FQ')
+    #    def focus_stop(self):
+    #        self.lx200_cmd('FQ')
 
     # TODO: reimplement this
-#    def focus_fast(self):
-#        self.lx200_cmd('FF')
+    #    def focus_fast(self):
+    #        self.lx200_cmd('FF')
 
     # TODO: reimplement this
-#    def focus_medium(self):
-#        self.lx200_cmd('FM')
+    #    def focus_medium(self):
+    #        self.lx200_cmd('FM')
 
     # TODO: reimplement this
-#    def focus_slow(self):
-#        self.lx200_cmd('FS')
-
+    #    def focus_slow(self):
+    #        self.lx200_cmd('FS')
 
     ### Get Information Commands
 
     # TODO: reimplement this
-#    def get_alt(self):
-#        """Altitude in signed degrees format [-90.0, +90.0]."""
-#        return float(self.lx200_cmd('GA', expect_reply=True))
+    #    def get_alt(self):
+    #        """Altitude in signed degrees format [-90.0, +90.0]."""
+    #        return float(self.lx200_cmd('GA', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_led_brightness(self):
-#        return int(self.lx200_cmd('GB', expect_reply=True))
+    #    def get_led_brightness(self):
+    #        return int(self.lx200_cmd('GB', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_local_date(self):
-#        """Date as a string in mm/dd/yy format."""
-#        return self.lx200_cmd('GC', expect_reply=True)
+    #    def get_local_date(self):
+    #        """Date as a string in mm/dd/yy format."""
+    #        return self.lx200_cmd('GC', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_clock_format(self):
-#        return self.lx200_cmd('Gc', expect_reply=True)
+    #    def get_clock_format(self):
+    #        return self.lx200_cmd('Gc', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_dec(self):
-#        """Apparent declination in signed degrees [-90.0,+90.0]."""
-#        return float(self.lx200_cmd('GD', expect_reply=True))
+    #    def get_dec(self):
+    #        """Apparent declination in signed degrees [-90.0,+90.0]."""
+    #        return float(self.lx200_cmd('GD', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_obj_dec(self):
-#        """Selected object's declination in signed degrees."""
-#        return float(self.lx200_cmd('Gd', expect_reply=True))
+    #    def get_obj_dec(self):
+    #        """Selected object's declination in signed degrees."""
+    #        return float(self.lx200_cmd('Gd', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_alarm_time(self):
-#        return self.lx200_cmd('GE', expect_reply=True)
+    #    def get_alarm_time(self):
+    #        return self.lx200_cmd('GE', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_utc_offset(self):
-#        return self.lx200_cmd('GG', expect_reply=True)
+    #    def get_utc_offset(self):
+    #        return self.lx200_cmd('GG', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_site_lon(self):
-#        return float(self.lx200_cmd('Gg', expect_reply=True))
+    #    def get_site_lon(self):
+    #        return float(self.lx200_cmd('Gg', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_hour_angle(self):
-#        """Hour angle in signed degrees."""
-#        return float(self.lx200_cmd('GH', expect_reply=True))
+    #    def get_hour_angle(self):
+    #        """Hour angle in signed degrees."""
+    #        return float(self.lx200_cmd('GH', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_info_buffer(self):
-#        return self.lx200_cmd('GI', expect_reply=True)
+    #    def get_info_buffer(self):
+    #        return self.lx200_cmd('GI', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_local_time(self):
-#        """Local time in hours as a float."""
-#
-#        # For some reason time is not very precise in double precision. It's
-#        # worse than one second. High precision format has better resolution.
-#        return float(self.lx200_cmd('GL', expect_reply=True))
+    #    def get_local_time(self):
+    #        """Local time in hours as a float."""
+    #
+    #        # For some reason time is not very precise in double precision. It's
+    #        # worse than one second. High precision format has better resolution.
+    #        return float(self.lx200_cmd('GL', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_meridian_side(self):
-#        """Returns 'E' or 'W' to indicate side of meridian."""
-#        return self.lx200_cmd('Gm', expect_reply=True)
+    #    def get_meridian_side(self):
+    #        """Returns 'E' or 'W' to indicate side of meridian."""
+    #        return self.lx200_cmd('Gm', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_site_name(self, site_num=0):
-#        site_letters = ['M', 'N', 'O', 'P']
-#        return self.lx200_cmd('G' + site_letters[site_num], expect_reply=True)
+    #    def get_site_name(self, site_num=0):
+    #        site_letters = ['M', 'N', 'O', 'P']
+    #        return self.lx200_cmd('G' + site_letters[site_num], expect_reply=True)
 
     # TODO: reimplement this
-#    def get_ra(self):
-#        """Apparent right ascension in hours [0.0,24.0)."""
-#        return float(self.lx200_cmd('GR', expect_reply=True))
+    #    def get_ra(self):
+    #        """Apparent right ascension in hours [0.0,24.0)."""
+    #        return float(self.lx200_cmd('GR', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_obj_ra(self):
-#        """Selected object's right ascension in signed degrees."""
-#        return float(self.lx200_cmd('Gr', expect_reply=True))
+    #    def get_obj_ra(self):
+    #        """Selected object's right ascension in signed degrees."""
+    #        return float(self.lx200_cmd('Gr', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_sidereal_time(self):
-#        return float(self.lx200_cmd('GS', expect_reply=True))
+    #    def get_sidereal_time(self):
+    #        return float(self.lx200_cmd('GS', expect_reply=True))
 
     # TODO: reimplement this
-#    def get_site_lat(self):
-#        return float(self.lx200_cmd('Gt', expect_reply=True))
+    #    def get_site_lat(self):
+    #        return float(self.lx200_cmd('Gt', expect_reply=True))
 
     # Omitting command 'GV' which is redundant with 'GVN'.
 
     # TODO: reimplement this
-#    def get_software_build_date(self):
-#        return self.lx200_cmd('GVD', expect_reply=True)
+    #    def get_software_build_date(self):
+    #        return self.lx200_cmd('GVD', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_software_level(self):
-#        return self.lx200_cmd('GVN', expect_reply=True)
+    #    def get_software_level(self):
+    #        return self.lx200_cmd('GVN', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_product_string(self):
-#        return self.lx200_cmd('GVP', expect_reply=True)
+    #    def get_product_string(self):
+    #        return self.lx200_cmd('GVP', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_software_build_time(self):
-#        return self.lx200_cmd('GVT', expect_reply=True)
+    #    def get_software_build_time(self):
+    #        return self.lx200_cmd('GVT', expect_reply=True)
 
     # TODO: reimplement this
-#    def get_max_velocity(self):
-#        """Maximum velocity of both axes."""
-#        return self.lx200_cmd('Gv', expect_reply=True, reply_len=1)
+    #    def get_max_velocity(self):
+    #        """Maximum velocity of both axes."""
+    #        return self.lx200_cmd('Gv', expect_reply=True, reply_len=1)
 
     # TODO: reimplement this
-#    def get_velocity_ra(self):
-#        return self.lx200_cmd('GW', expect_reply=True, reply_len=1)
+    #    def get_velocity_ra(self):
+    #        return self.lx200_cmd('GW', expect_reply=True, reply_len=1)
 
     # TODO: reimplement this
-#    def get_velocity_dec(self):
-#        return self.lx200_cmd('Gw', expect_reply=True, reply_len=1)
+    #    def get_velocity_dec(self):
+    #        return self.lx200_cmd('Gw', expect_reply=True, reply_len=1)
 
     # TODO: reimplement this
-#    def get_velocity(self):
-#        """Velocity of both axes: RA, DEC (2 characters)."""
-#        return self.lx200_cmd('Gu', expect_reply=True, reply_len=2)
+    #    def get_velocity(self):
+    #        """Velocity of both axes: RA, DEC (2 characters)."""
+    #        return self.lx200_cmd('Gu', expect_reply=True, reply_len=2)
 
     # TODO: reimplement this
-#    def get_az(self):
-#        """Azimuth in signed degrees format [0.0, 360.0)."""
-#        return float(self.lx200_cmd('GZ', expect_reply=True))
-
+    #    def get_az(self):
+    #        """Azimuth in signed degrees format [0.0, 360.0)."""
+    #        return float(self.lx200_cmd('GZ', expect_reply=True))
 
     ### Park Commands
 
     # TODO: reimplement this
-#    def park_home(self):
-#        self.lx200_cmd('hP')
+    #    def park_home(self):
+    #        self.lx200_cmd('hP')
 
     # TODO: reimplement this
-#    def park_startup(self):
-#        self.lx200_cmd('hC')
+    #    def park_startup(self):
+    #        self.lx200_cmd('hC')
 
     # TODO: reimplement this
-#    def park_zenith(self):
-#        self.lx200_cmd('hZ')
+    #    def park_zenith(self):
+    #        self.lx200_cmd('hZ')
 
     # TODO: reimplement this
-#    def sleep(self):
-#        self.lx200_cmd('hN')
+    #    def sleep(self):
+    #        self.lx200_cmd('hN')
 
     # TODO: reimplement this
-#    def wake(self):
-#        self.lx200_cmd('hW')
-
+    #    def wake(self):
+    #        self.lx200_cmd('hW')
 
     ### Move Commands
 
     # TODO: reimplement this
-#    def goto_object_horiz(self):
-#        """Goto object selected with horizontal coordinates."""
-#        return self.lx200_cmd('MA', expect_reply=True)
+    #    def goto_object_horiz(self):
+    #        """Goto object selected with horizontal coordinates."""
+    #        return self.lx200_cmd('MA', expect_reply=True)
 
     # TODO: reimplement this
-#    def search_pattern(self, arcmins):
-#        """Move at find speed in a meander search pattern."""
-#        self.lx200_cmd('MF' + str(arcmins), expect_reply=True)
+    #    def search_pattern(self, arcmins):
+    #        """Move at find speed in a meander search pattern."""
+    #        self.lx200_cmd('MF' + str(arcmins), expect_reply=True)
 
     # TODO: reimplement this
-#    def move_lock(self):
-#        self.lx200_cmd('ML', expect_reply=True)
+    #    def move_lock(self):
+    #        self.lx200_cmd('ML', expect_reply=True)
 
     # TODO: reimplement this
-#    def move_unlock(self):
-#        self.lx200_cmd('Ml', expect_reply=True)
+    #    def move_unlock(self):
+    #        self.lx200_cmd('Ml', expect_reply=True)
 
     # TODO: reimplement this
-#    def meridian_flip(self):
-#        return self.lx200_cmd('Mf', expect_reply=True)
+    #    def meridian_flip(self):
+    #        return self.lx200_cmd('Mf', expect_reply=True)
 
     # TODO: reimplement this
-#    def goto_object(self, allow_meridian_flip=False):
-#        """Goto object selected from database or equatorial coordinates."""
-#        cmd = 'MM' if allow_meridian_flip else 'MS'
-#        return lx200_cmd(cmd, expect_reply=True)
+    #    def goto_object(self, allow_meridian_flip=False):
+    #        """Goto object selected from database or equatorial coordinates."""
+    #        cmd = 'MM' if allow_meridian_flip else 'MS'
+    #        return lx200_cmd(cmd, expect_reply=True)
 
     # TODO: reimplement this
-#    def move(self, direction):
-#        """Move in a direction: 'east', 'west', 'north', or 'south'."""
-#        if direction not in ['east', 'west', 'north', 'south']:
-#            raise ValueError('invalid direction for move command') # TODO: consider using an exception derived from Gemini2Exception!
-#        self.lx200_cmd('M' + direction[0])
+    #    def move(self, direction):
+    #        """Move in a direction: 'east', 'west', 'north', or 'south'."""
+    #        if direction not in ['east', 'west', 'north', 'south']:
+    #            # TODO: consider using an exception derived from Gemini2Exception!
+    #            raise ValueError('invalid direction for move command')
+    #        self.lx200_cmd('M' + direction[0])
 
     # TODO: reimplement this
-#    def move_ticks(self, ra_steps, dec_steps):
-#        self.lx200_cmd('mi' + str(ra_steps) + ';' + str(dec_steps))
+    #    def move_ticks(self, ra_steps, dec_steps):
+    #        self.lx200_cmd('mi' + str(ra_steps) + ';' + str(dec_steps))
 
     # TODO: reimplement this
-#    def set_step_multiplier(self, multiplier):
-#        self.lx200_cmd('mm' + str(multiplier))
-
+    #    def set_step_multiplier(self, multiplier):
+    #        self.lx200_cmd('mm' + str(multiplier))
 
     ### Precision Guiding Commands
-
 
     ### Object/Observing/Output Commands
 
     def set_object_name(self, name):
         self.exec_cmd(G2Cmd_SetObjectName(name))
 
-
     ### Precession and Refraction Commands
-
 
     ### Precision Commands
 
@@ -452,12 +474,9 @@ class Gemini2:
     def set_double_precision(self):
         self.exec_cmd(G2Cmd_SetDblPrecision())
 
-
     ### Quit Motion Commands
 
-
     ### Rate Commands
-
 
     ### Set Commands
 
@@ -473,7 +492,6 @@ class Gemini2:
     def set_site_latitude(self, lat):
         self.exec_cmd(G2Cmd_SetSiteLatitude(lat))
 
-
     ### Site Selection Commands
 
     def set_stored_site(self, site):
@@ -481,7 +499,6 @@ class Gemini2:
 
     def get_stored_site(self):
         return self.exec_cmd(G2Cmd_GetStoredSite()).get()
-
 
     ### Native Commands
 
@@ -513,7 +530,6 @@ class Gemini2:
     def get_ntp_server_addr(self):
         return self.exec_cmd(G2Cmd_NTPServerAddr_Get()).get()
 
-
     ### Undocumented Commands
 
     def set_ra_divisor(self, div):
@@ -524,24 +540,15 @@ class Gemini2:
 
     def ra_start_movement(self):
         self.exec_cmd(G2Cmd_RA_StartStop_Set(G2Stopped.NOT_STOPPED))
+
     def ra_stop_movement(self):
         self.exec_cmd(G2Cmd_RA_StartStop_Set(G2Stopped.STOPPED))
 
     def dec_start_movement(self):
         self.exec_cmd(G2Cmd_DEC_StartStop_Set(G2Stopped.NOT_STOPPED))
+
     def dec_stop_movement(self):
         self.exec_cmd(G2Cmd_DEC_StartStop_Set(G2Stopped.STOPPED))
-
-
-
-
-
-
-
-
-
-
-
 
     ### Wrapper Methods
     # These are methods that wrap one or more of the low-level interface
@@ -565,9 +572,9 @@ class Gemini2:
         time -= seconds
         microseconds = int(time * 1e6)
         t = datetime.datetime(
-            2000 + int(date[6:8]), # year
-            int(date[0:2]),        # month
-            int(date[3:5]),        # day
+            2000 + int(date[6:8]),  # year
+            int(date[0:2]),  # month
+            int(date[3:5]),  # day
             hours,
             minutes,
             seconds,
@@ -584,33 +591,36 @@ class Gemini2:
     def slew(self, axis: str, rate: float) -> Tuple[float, bool]:
         """Set slew rate for one mount axis.
 
-        This slew command allows changes to the slew rate on the fly, in contrast to move commands
-        which do not.
+        This slew command allows changes to the slew rate on the fly, in contrast to
+        move commands which do not.
 
-        When multiprocessing is enabled the actual commands to the mount are sent rapidly in a
-        separate process until the desired rate is achieved to allow for enforcement of
-        acceleration limits while providing smooth acceleration. In multiprocessing mode this
-        method does not block, so the desired rate may not be achieved until some time after this
-        method returns.
+        When multiprocessing is enabled the actual commands to the mount are sent
+        rapidly in a separate process until the desired rate is achieved to allow for
+        enforcement of acceleration limits while providing smooth acceleration. In
+        multiprocessing mode this method does not block, so the desired rate may not be
+        achieved until some time after this method returns.
 
-        When multiprocessing is disabled this method is blocking and will not return until the
-        command to the mount has been sent. For all but the smallest rate changes acceleration
-        limits will likely prevent achieving the desired slew rate in a single call so multiple
-        calls may be required until the desired rate is achieved.
+        When multiprocessing is disabled this method is blocking and will not return
+        until the command to the mount has been sent. For all but the smallest rate
+        changes acceleration limits will likely prevent achieving the desired slew rate
+        in a single call so multiple calls may be required until the desired rate is
+        achieved.
 
         Args:
             axis: Axis to which this applies, 'ra' or 'dec'.
-            rate: Slew rate target in degrees per second. When multiprocessing is enabled the mount
-                will accelerate until this rate is achieved as long as the rate does not exceed the
-                rate limit. When multiprocessing is disabled this method will send a slew rate
-                command that is as close as possible to this value subject to acceleration and
-                rate step limits. For the RA axis, positive values move east, toward increasing
-                right ascension.
+            rate: Slew rate target in degrees per second. When multiprocessing is
+                enabled the mount will accelerate until this rate is achieved as long as
+                the rate does not exceed the rate limit. When multiprocessing is
+                disabled this method will send a slew rate command that is as close as
+                possible to this value subject to acceleration and rate step limits. For
+                the RA axis, positive values move east, toward increasing right
+                ascension.
 
         Returns:
-            A tuple containing the actual slew rate target and a bool indicating whether the slew
-            rate limit was exceeded. The actual slew rate may differ slightly from the desired rate
-            due to quantization error in the divisor setting or limits that were enforced.
+            A tuple containing the actual slew rate target and a bool indicating whether
+            the slew rate limit was exceeded. The actual slew rate may differ slightly
+            from the desired rate due to quantization error in the divisor setting or
+            limits that were enforced.
         """
 
         if axis not in ['ra', 'dec']:
@@ -634,13 +644,12 @@ class Gemini2:
 
         return rate, limits_exceeded
 
-
     def get_slew_rate(self, axis: str) -> float:
         """Get current slew rate for a mount axis.
 
-        This method gets the current slew rate for one mount axis. The slew rate cannot be queried
-        from the mount directly, so the implementation returns the cached value from the last
-        slew rate divisor commands that were sent to the mount.
+        This method gets the current slew rate for one mount axis. The slew rate cannot
+        be queried from the mount directly, so the implementation returns the cached
+        value from the last slew rate divisor commands that were sent to the mount.
 
         Args:
             axis: Axis to which this applies, 'ra' or 'dec'.
@@ -654,7 +663,6 @@ class Gemini2:
             div = self._div_last_commanded[axis]
         return self.div_to_slew_rate(div)
 
-
     def _slew_rate_single(self, axis: str, rate_desired: float) -> Tuple[float, bool]:
         """Send a single slew-rate command to the specified axis.
 
@@ -662,8 +670,8 @@ class Gemini2:
 
         Args:
             axis: 'ra' or 'dec'
-            rate_desired: The slew rate to set in degrees per second. Actual rate commanded may
-                differ if limits are enforced.
+            rate_desired: The slew rate to set in degrees per second. Actual rate
+                commanded may differ if limits are enforced.
 
         Returns:
             The actual rate commanded.
@@ -674,38 +682,42 @@ class Gemini2:
             rate_desired,
             time_current,
             rate_last_commanded,
-            self._time_last_commanded[axis]
+            self._time_last_commanded[axis],
         )
-        rate_to_command = self._apply_rate_step_limit(rate_to_command, rate_last_commanded)
+        rate_to_command = self._apply_rate_step_limit(
+            rate_to_command, rate_last_commanded
+        )
         div = self.slew_rate_to_div(rate_to_command)
         self._set_divisor(axis, div, self._div_last_commanded[axis])
         self._div_last_commanded[axis] = div
         self._time_last_commanded[axis] = time_current
         return self.div_to_slew_rate(div), rate_to_command != rate_desired
 
-
     def _slew_rate_process(
-            self,
-            axis: str,
-            rate_target_pipe: Connection,
-            axis_safe_event: Event,
-            div_last_commanded_shared: Value,
-        ):
-        """Process for sending slew rate commands continuously until a target rate is achieved.
+        self,
+        axis: str,
+        rate_target_pipe: Connection,
+        axis_safe_event: Event,
+        div_last_commanded_shared: Value,
+    ):
+        """Process for sending slew rate commands until a target rate is achieved.
 
-        This process helps the mount to accelerate smoothly, since this requires sending commands
-        to the mount computer in rapid succession. Acceleration and slew rate step limits are
-        enforced here. Commands are sent to the mount until the desired target slew rate is
-        achieved, and then it will wait for a new rate target before sending further commands.
+        This process helps the mount to accelerate smoothly, since this requires sending
+        commands to the mount computer in rapid succession. Acceleration and slew rate
+        step limits are enforced here. Commands are sent to the mount until the desired
+        target slew rate is achieved, and then it will wait for a new rate target before
+        sending further commands.
 
         Args:
-            axis: The mount axis to be controlled by this process (one process per axis).
-            rate_target_pipe: The receiving end connection to a multiprocessing pipe over which
-                slew rate target values are sent. Rates are in degrees per second.
-            axis_safe_event: When the axis is safed, meaning that motion is stopped, this event
-                will be set. Otherwise, it will be cleared.
-            div_last_commanded_shared: Shared memory storing the divisor value most recently
-                commanded for this mount axis.
+            axis: The mount axis to be controlled by this process (one process per
+                axis).
+            rate_target_pipe: The receiving end connection to a multiprocessing pipe
+                over which slew rate target values are sent. Rates are in degrees per
+                second.
+            axis_safe_event: When the axis is safed, meaning that motion is stopped,
+                this event will be set. Otherwise, it will be cleared.
+            div_last_commanded_shared: Shared memory storing the divisor value most
+                recently commanded for this mount axis.
         """
 
         # Ignore SIGINT in this process (will be handled in main process)
@@ -714,9 +726,9 @@ class Gemini2:
         current_process = multiprocessing.current_process()
         parent_process = multiprocessing.parent_process()
 
-        # Last commanded rate is cached along with the time of last command to enforce acceleration
-        # limit. Keep local copy of last commanded divisor to avoid accessing shared memory more
-        # than necessary.
+        # Last commanded rate is cached along with the time of last command to enforce
+        # acceleration limit. Keep local copy of last commanded divisor to avoid
+        # accessing shared memory more than necessary.
         axis_safe_event.set()
         div_target = 0
         div_last_commanded = div_last_commanded_shared.value
@@ -728,24 +740,28 @@ class Gemini2:
                 return
 
             if not shutdown:
-
                 # Don't become a zombie.
                 if not parent_process.is_alive():
-                    print(f'Parent process with PID {parent_process.pid} is dead; '
-                          f'child with PID {current_process.pid} is shutting down.')
+                    print(
+                        f'Parent process with PID {parent_process.pid} is dead; '
+                        f'child with PID {current_process.pid} is shutting down.'
+                    )
                     div_target = 0
                     shutdown = True
                     continue
 
-                # Use a finite timeout here such that parent process aliveness is checked regularly.
-                # If parent process dies this could block forever without a timeout. Can only
-                # afford to wait here if the previous target rate is already achieved.
-                if rate_target_pipe.poll(timeout=1.0 if div_target == div_last_commanded else 0.0):
-
+                # Use a finite timeout here such that parent process aliveness is
+                # checked regularly. If parent process dies this could block forever
+                # without a timeout. Can only afford to wait here if the previous target
+                # rate is already achieved.
+                if rate_target_pipe.poll(
+                    timeout=1.0 if div_target == div_last_commanded else 0.0
+                ):
                     # Shouldn't block since poll() returned True.
                     rate_target = rate_target_pipe.recv()
 
-                    # None is a special value indicating that it is time to shut down this process
+                    # None is a special value indicating that it is time to shut down
+                    # this process.
                     if rate_target is None:
                         div_target = 0
                         shutdown = True
@@ -758,32 +774,35 @@ class Gemini2:
 
             time_current = time.perf_counter()
 
-            # may not be able to achieve div_target if it exceeds rate accel or step limits
+            # May not be able to achieve div_target if it exceeds rate accel or step
+            # limits.
             rate_target = self.div_to_slew_rate(div_target)
             rate_last_commanded = self.div_to_slew_rate(div_last_commanded)
 
             rate_to_command = self._apply_rate_accel_limit(
-                rate_target,
-                time_current,
-                rate_last_commanded,
-                time_last_commanded
+                rate_target, time_current, rate_last_commanded, time_last_commanded
             )
-            rate_to_command = self._apply_rate_step_limit(rate_to_command, rate_last_commanded)
+            rate_to_command = self._apply_rate_step_limit(
+                rate_to_command, rate_last_commanded
+            )
 
             div = self.slew_rate_to_div(rate_to_command)
 
-            # Clear this event before sending the actual commands since the state of the mount
-            # is about to change and because if the commands fail for some reason the state of
-            # the mount will be unknown and cannot be assumed to be safe.
+            # Clear this event before sending the actual commands since the state of the
+            # mount is about to change and because if the commands fail for some reason
+            # the state of the mount will be unknown and cannot be assumed to be safe.
             if div != 0:
                 axis_safe_event.clear()
 
             try:
                 self._set_divisor(axis, div, div_last_commanded)
             except Gemini2Exception as e:
-                # dangerous to give up because this thread is critical for stopping mount motion
-                # safely; better to keep trying to send commands to the bitter end
-                print(f'Ignoring exception in {axis} slew rate command thread: {str(e)}')
+                # Dangerous to give up because this thread is critical for stopping
+                # mount motion safely; better to keep trying to send commands to the
+                # bitter end.
+                print(
+                    f'Ignoring exception in {axis} slew rate command thread: {str(e)}'
+                )
                 continue
 
             div_last_commanded_shared.value = div
@@ -793,30 +812,30 @@ class Gemini2:
             if div_last_commanded == 0:
                 axis_safe_event.set()
 
-
     def _apply_rate_accel_limit(
-            self,
-            rate_desired: float,
-            time_current: float,
-            rate_last_commanded: float,
-            time_last_commanded: float
-        ) -> float:
+        self,
+        rate_desired: float,
+        time_current: float,
+        rate_last_commanded: float,
+        time_last_commanded: float,
+    ) -> float:
         """Apply the slew acceleration limit to the desired rate, if enabled.
 
-        Note that the acceleration limit is only effective if slew rate commands are sent to the
-        mount at a fairly fast and steady rate (~10 Hz or higher).
+        Note that the acceleration limit is only effective if slew rate commands are
+        sent to the mount at a fairly fast and steady rate (~10 Hz or higher).
 
         Args:
             rate_desired: The desired slew rate in degrees per second.
             time_current: The time of the current command as a Unix timestamp.
             rate_last_commanded: The slew rate that was commanded most recently.
-            time_last_commanded: The time the last commanded slew rate was sent as a Unix
-                timestamp.
+            time_last_commanded: The time the last commanded slew rate was sent as a
+                Unix timestamp.
 
         Returns:
-            A slew rate that does not exceed the acceleration limit. If the rate_desired is already
-            within this limit, or if the limit is disabled, rate_desired is returned unmodified.
-            Otherwise the closest rate that complies with the limit is returned.
+            A slew rate that does not exceed the acceleration limit. If the rate_desired
+            is already within this limit, or if the limit is disabled, rate_desired is
+            returned unmodified. Otherwise the closest rate that complies with the limit
+            is returned.
         """
         if self._accel_limit is None:
             return rate_desired
@@ -824,13 +843,16 @@ class Gemini2:
         time_since_last = time_current - time_last_commanded
         rate_change_desired = rate_desired - rate_last_commanded
         if abs(rate_change_desired) / time_since_last > self._accel_limit:
-            rate_change_clamped = clamp(rate_change_desired, self._accel_limit * time_since_last)
+            rate_change_clamped = clamp(
+                rate_change_desired, self._accel_limit * time_since_last
+            )
             return rate_last_commanded + rate_change_clamped
 
         return rate_desired
 
-
-    def _apply_rate_step_limit(self, rate_desired: float, rate_last_commanded: float) -> float:
+    def _apply_rate_step_limit(
+        self, rate_desired: float, rate_last_commanded: float
+    ) -> float:
         """Apply the slew rate step limit to the desired rate, if enabled.
 
         Args:
@@ -838,10 +860,10 @@ class Gemini2:
             rate_last_commanded: The slew rate that was commanded most recently.
 
         Returns:
-            A slew rate that is within the rate step limit of the last commanded rate. If the
-            rate_desired is already within this limit, or if the limit is disabled, rate_desired
-            is returned unmodified. Otherwise the closest rate that complies with the limit is
-            returned.
+            A slew rate that is within the rate step limit of the last commanded rate.
+            If the rate_desired is already within this limit, or if the limit is
+            disabled, rate_desired is returned unmodified. Otherwise the closest rate
+            that complies with the limit is returned.
         """
         if self._rate_step_limit is None:
             return rate_desired
@@ -853,36 +875,37 @@ class Gemini2:
 
         return rate_desired
 
-
-    def _set_divisor(self, axis: str, div: int, div_last_commanded: Optional[int] = None):
+    def _set_divisor(
+        self, axis: str, div: int, div_last_commanded: Optional[int] = None
+    ):
         """Set the divisor value for one mount axis to control slew rate.
 
-        For the RA axis this also handles sending the stop/start movement commands if needed.
+        For the RA axis this also handles sending the stop/start movement commands if
+        needed.
 
         Args:
             axis: 'ra' or 'dec'
             div: Divisor value to set
-            div_last_commanded: For RA axis, this is used to avoid sending stop/start movement
-                commands if they are not necessary.
+            div_last_commanded: For RA axis, this is used to avoid sending stop/start
+                movement commands if they are not necessary.
         """
         if axis == 'ra':
-            # Must use the start and stop movement commands on the RA axis because achieving zero
-            # motion when slew() is called repeatedly with a rate of zero can't be accomplished
-            # using set_ra_divisor alone.
+            # Must use the start and stop movement commands on the RA axis because
+            # achieving zero motion when slew() is called repeatedly with a rate of zero
+            # can't be accomplished using set_ra_divisor alone.
             if div == 0 and (div_last_commanded is None or div_last_commanded != 0):
                 self.ra_stop_movement()
             elif div != 0 and (div_last_commanded is None or div_last_commanded == 0):
                 self.ra_start_movement()
 
-            # Only set the RA divisor to non-zero values. Setting the RA divisor to 0 will cause
-            # that axis to advance by exactly one servo step per command which is not the desired
-            # action.
+            # Only set the RA divisor to non-zero values. Setting the RA divisor to 0
+            # will cause that axis to advance by exactly one servo step per command
+            # which is not the desired action.
             if div != 0:
-                # the divisor is negated here to reverse the direction
+                # The divisor is negated here to reverse the direction.
                 self.set_ra_divisor(-div)
         else:
             self.set_dec_divisor(div)
-
 
     def slew_rate_to_div(self, rate: float) -> int:
         """Convert a slew rate to divisor setting.
@@ -898,7 +921,6 @@ class Gemini2:
         # TODO: Replace hard-coded constants with values read from Gemini in constructor
         return int(12e6 / (6400.0 * rate))
 
-
     def div_to_slew_rate(self, div: int) -> float:
         """Convert a divisor setting to corresponding slew rate.
 
@@ -913,19 +935,20 @@ class Gemini2:
         # TODO: Replace hard-coded constants with values read from Gemini in constructor
         return 12e6 / (6400.0 * div)
 
-
     def stop_motion(self):
         """Stops motion on both axes.
 
-        Stops motion on both axes. Blocks until slew rates have reached zero, which may take some
-        time depending on the slew rates at the time this is invoked and acceleration limits.
+        Stops motion on both axes. Blocks until slew rates have reached zero, which may
+        take some time depending on the slew rates at the time this is invoked and
+        acceleration limits.
 
-        There is a possibility of a race condition here with multiprocessing enabled due to nuances
-        of multiprocess communication. If the "safe" events are already set when this is called,
-        but the process is just about to send commands to a non-zero slew rate (from previous calls
-        to slew() that are sitting in the pipe), this method could return immediately even though
-        the mount is about to be (briefly) in motion. However this edge case is expected to be
-        relatively unlikely to happen in practice.
+        There is a possibility of a race condition here with multiprocessing enabled due
+        to nuances of multiprocess communication. If the "safe" events are already set
+        when this is called, but the process is just about to send commands to a non-
+        zero slew rate (from previous calls to slew() that are sitting in the pipe),
+        this method could return immediately even though the mount is about to be
+        (briefly) in motion. However this edge case is expected to be relatively
+        unlikely to happen in practice.
         """
         if self._use_multiprocessing == True:
             self.slew('ra', 0.0)
@@ -938,33 +961,34 @@ class Gemini2:
                     (actual_rate_ra, limits_exceeded) = self.slew('ra', 0.0)
                     (actual_rate_dec, limits_exceeded) = self.slew('dec', 0.0)
                 except Gemini2Exception as e:
-                    # dangerous to give up because this is critical for stopping mount motion
-                    # safely; better to keep trying to send commands to the bitter end
+                    # Dangerous to give up because this is critical for stopping mount
+                    # motion safely; better to keep trying to send commands to the
+                    # bitter end.
                     print(f'Ignoring exception in stop_motion: {str(e)}')
                     continue
                 if actual_rate_ra == 0.0 and actual_rate_dec == 0.0:
                     return
 
     def shutdown(self):
-        """Brings mount into a safe state in preparation for program end and disconnects.
+        """Bring mount into a safe state in preparation for program end and disconnects.
 
         This is similar to `stop_motion()` but with the following additions:
-        1) When multiprocessing is enabled this will also shut down the processes, which will
-           prevent any further slewing.
+        1) When multiprocessing is enabled this will also shut down the processes, which
+           will prevent any further slewing.
         2) Disconnects from the hardware and frees associated system resources.
 
-        This method will only perform actions the first time it is called. Subsequent calls will
-        return immediately.
+        This method will only perform actions the first time it is called. Subsequent
+        calls will return immediately.
         """
         if self.shutdown_complete:
-            # Should already be shutdown and disconnected; trying to send commands to stop motion
-            # in this state will cause IO exceptions to be raised.
+            # Should already be shutdown and disconnected; trying to send commands to
+            # stop motion in this state will cause IO exceptions to be raised.
             return
 
         if self._use_multiprocessing:
             for axis in ['ra', 'dec']:
                 if self._slew_rate_processes[axis].is_alive():
-                    # informs slew command process to bring rates to zero and then quit
+                    # Informs slew command process to bring rates to zero and then quit.
                     self._slew_rate_target[axis].send(None)
 
             for axis in ['ra', 'dec']:
