@@ -5,10 +5,10 @@ import ipaddress
 import time
 import calendar
 import multiprocessing
-from multiprocessing import Process, Event, Pipe, Value
+from multiprocessing.synchronize import Event as EventType
+from multiprocessing.sharedctypes import Synchronized as ValueType
 from multiprocessing.connection import Connection
 import signal
-from typing import Tuple, Optional
 from point.gemini_backend import Gemini2Backend
 from point.gemini_commands import (
     G2Cmd_AlignToObject,
@@ -82,7 +82,7 @@ class Gemini2:
         """Raised on bad command responses from Gemini."""
 
     class ReadTimeoutException(Exception):
-        """Raised when read from Gemini times out"""
+        """Raised when read from Gemini times out."""
 
     def __init__(
         self,
@@ -104,7 +104,7 @@ class Gemini2:
         Args:
             backend: This can be a Gemini2BackendSerial instance (if using USB serial)
                 or a Gemini2BackendUDP instance (if using UDP datagrams).
-            max_rate: Maximum allowed slew rate in degrees per second. May be set to
+            rate_limit: Maximum allowed slew rate in degrees per second. May be set to
                 None to disable enforcement (not recommended).
             rate_step_limit: Maximum allowed change in slew rate per call to slew() in
                 degrees per second. May be set to None to disable enforcement (not
@@ -131,11 +131,13 @@ class Gemini2:
             self._div_last_commanded = {}
             self._axis_safe_event = {}
             for axis in ['ra', 'dec']:
-                self._axis_safe_event[axis] = Event()
-                rate_target_pipe_recv, rate_target_pipe_send = Pipe(duplex=False)
-                self._div_last_commanded[axis] = Value('l', 0)
+                self._axis_safe_event[axis] = multiprocessing.Event()
+                rate_target_pipe_recv, rate_target_pipe_send = multiprocessing.Pipe(
+                    duplex=False
+                )
+                self._div_last_commanded[axis] = multiprocessing.Value('l', 0)
                 self._slew_rate_target[axis] = rate_target_pipe_send
-                self._slew_rate_processes[axis] = Process(
+                self._slew_rate_processes[axis] = multiprocessing.Process(
                     target=self._slew_rate_process,
                     name='Gemini ' + axis.upper() + ' slew rate thread',
                     args=(
@@ -556,8 +558,7 @@ class Gemini2:
     # convenience.
 
     def get_unix_time(self):
-        """Get UNIX time (seconds since 00:00:00 UTC on 1 Jan 1970)"""
-
+        """Get UNIX time (seconds since 00:00:00 UTC on 1 Jan 1970)."""
         # Slight risk that date and time commands will be inconsistent if
         # one is called just before UTC midnight and the other is called just
         # after midnight but there is no single command to retrieve the date
@@ -588,7 +589,7 @@ class Gemini2:
             self.set_object_name(name)
         self.set_object_dec(dec)
 
-    def slew(self, axis: str, rate: float) -> Tuple[float, bool]:
+    def slew(self, axis: str, rate: float) -> tuple[float, bool]:
         """Set slew rate for one mount axis.
 
         This slew command allows changes to the slew rate on the fly, in contrast to
@@ -622,7 +623,6 @@ class Gemini2:
             from the desired rate due to quantization error in the divisor setting or
             limits that were enforced.
         """
-
         if axis not in ['ra', 'dec']:
             raise ValueError("axis must be 'ra' or 'dec'")
 
@@ -657,13 +657,13 @@ class Gemini2:
         Returns:
             The current slew rate of the mount axis in degrees per second.
         """
-        if self._use_multiprocessing == True:
+        if self._use_multiprocessing:
             div = self._div_last_commanded[axis].value
         else:
             div = self._div_last_commanded[axis]
         return self.div_to_slew_rate(div)
 
-    def _slew_rate_single(self, axis: str, rate_desired: float) -> Tuple[float, bool]:
+    def _slew_rate_single(self, axis: str, rate_desired: float) -> tuple[float, bool]:
         """Send a single slew-rate command to the specified axis.
 
         This method is used when multiprocessing is disabled.
@@ -697,8 +697,8 @@ class Gemini2:
         self,
         axis: str,
         rate_target_pipe: Connection,
-        axis_safe_event: Event,
-        div_last_commanded_shared: Value,
+        axis_safe_event: EventType,
+        div_last_commanded_shared: ValueType,
     ):
         """Process for sending slew rate commands until a target rate is achieved.
 
@@ -719,7 +719,6 @@ class Gemini2:
             div_last_commanded_shared: Shared memory storing the divisor value most
                 recently commanded for this mount axis.
         """
-
         # Ignore SIGINT in this process (will be handled in main process)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
@@ -876,7 +875,7 @@ class Gemini2:
         return rate_desired
 
     def _set_divisor(
-        self, axis: str, div: int, div_last_commanded: Optional[int] = None
+        self, axis: str, div: int, div_last_commanded: int | None = None
     ):
         """Set the divisor value for one mount axis to control slew rate.
 
@@ -950,7 +949,7 @@ class Gemini2:
         (briefly) in motion. However this edge case is expected to be relatively
         unlikely to happen in practice.
         """
-        if self._use_multiprocessing == True:
+        if self._use_multiprocessing:
             self.slew('ra', 0.0)
             self.slew('dec', 0.0)
             self._axis_safe_event['ra'].wait()
