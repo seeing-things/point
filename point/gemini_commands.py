@@ -50,9 +50,7 @@ def parse_int(string):
 
 def parse_int_bounds(string, bound_min, bound_max):
     if bound_min > bound_max:
-        raise G2ResponseParseError(
-            'bound_min {} > bound_max {})'.format(bound_min, bound_max)
-        )
+        raise G2ResponseParseError(f'bound_min {bound_min} > bound_max {bound_max})')
     val = parse_int(string)
     if val < bound_min or val > bound_max:
         raise G2ResponseIntegerBoundsViolation(val, bound_min, bound_max)
@@ -271,7 +269,7 @@ class Gemini2Command_LX200(Gemini2Command):
     def encode(self):
         cmd_str = self.lx200_str()
         self._check_validity(cmd_str)
-        return ':{:s}#'.format(cmd_str)
+        return f':{cmd_str:s}#'
 
     # IMPLEMENTED AT THE COMMAND-SPECIFIC SUBCLASS LEVEL (Echo etc)
     # purpose: takes params supplied via the ctor or otherwise (if any) and builds the
@@ -301,7 +299,7 @@ class Gemini2Command_Native(Gemini2Command):
         cmd_str = '{:s}{:d}:{:s}'.format(
             self.native_prefix(), self.native_id(), params_str
         )
-        return '{:s}{:s}#'.format(cmd_str, chr(self._compute_checksum(cmd_str)))
+        return f'{cmd_str:s}{chr(self._compute_checksum(cmd_str)):s}#'
 
     # IMPLEMENTED AT THE COMMAND-SPECIFIC SUBCLASS LEVEL (GetMountType etc)
     # return: native command ID number
@@ -720,7 +718,7 @@ class G2Cmd_SelectStartupMode(Gemini2Command_LX200_NoReply):
         self._mode = mode
 
     def lx200_str(self):
-        return 'b{:s}'.format(G2StartupMode[self._mode])
+        return f'b{G2StartupMode[self._mode]:s}'
 
 
 ### Macro Commands
@@ -745,7 +743,7 @@ class G2Rsp_MacroENQ(Gemini2Response_Macro):
         # TODO: implement some range checking on most of the numerical fields here
         # (e.g. angle ranges:  [0,180) or [-90,+90] or [0,360)  etc)
         fields = self.get_raw()
-        self._values = dict()
+        self._values = {}
         # raises G2ResponseIntegerParseError on failure
         # self._values['phys_x'] = parse_int(fields[0])
         # raises G2ResponseIntegerParseError on failure
@@ -814,7 +812,7 @@ class G2Cmd_Echo(Gemini2Command_LX200):
         self._char = char
 
     def lx200_str(self):
-        return 'CE{:s}'.format(self._char)
+        return f'CE{self._char:s}'
 
     def response(self):
         return G2Rsp_Echo(self)
@@ -892,7 +890,7 @@ class G2Cmd_SetObjectName(Gemini2Command_LX200_NoReply):
         self._name = name
 
     def lx200_str(self):
-        return 'ON{:s}'.format(self._name)
+        return f'ON{self._name:s}'
 
 
 # ...
@@ -957,7 +955,7 @@ class G2Cmd_SetObjectRA(Gemini2Command_LX200):
         _, self._hour, self._min, self._sec = ang_to_hourminsec(ra)
 
     def lx200_str(self):
-        return 'Sr{:02d}:{:02d}:{:02d}'.format(self._hour, self._min, self._sec)
+        return f'Sr{self._hour:02d}:{self._min:02d}:{self._sec:02d}'
 
     def response(self):
         return G2Rsp_SetObjectRA(self)
@@ -1014,7 +1012,7 @@ class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
         self._signchar = '-' if sign >= 0.0 else '+'
 
     def lx200_str(self):
-        return 'Sg{:s}{:03d}*{:02d}'.format(self._signchar, self._deg, self._min)
+        return f'Sg{self._signchar:s}{self._deg:03d}*{self._min:02d}'
 
     def response(self):
         return G2Rsp_SetSiteLongitude(self)
@@ -1039,7 +1037,7 @@ class G2Cmd_SetSiteLatitude(Gemini2Command_LX200):
         self._signchar = '+' if sign >= 0.0 else '-'
 
     def lx200_str(self):
-        return 'St{:s}{:02d}*{:02d}'.format(self._signchar, self._deg, self._min)
+        return f'St{self._signchar:s}{self._deg:02d}*{self._min:02d}'
 
     def response(self):
         return G2Rsp_SetSiteLatitude(self)
@@ -1071,7 +1069,7 @@ class G2Cmd_SetStoredSite(Gemini2Command_LX200_NoReply):
         self._site = site
 
     def lx200_str(self):
-        return 'W{:d}'.format(self._site)
+        return f'W{self._site:d}'
 
 
 # NOTE: the official Gemini 2 serial command documentation is WRONG here:
@@ -1253,7 +1251,7 @@ class G2CmdBase_StartStop_Set(Gemini2Command_Native_Set):
         self._val = val
 
     def native_params(self):
-        return '{:b}'.format(self._val.value)
+        return f'{self._val.value:b}'
 
 
 class G2Cmd_RA_StartStop_Set(G2CmdBase_StartStop_Set):
