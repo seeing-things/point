@@ -84,9 +84,7 @@ class G2CommandParameterTypeError(G2CommandParameterError):
 
     def __init__(self, *types):
         if len(types) == 1:
-            super().__init__(
-                f'command expects 1 parameter with type {types[0]:s}'
-            )
+            super().__init__(f'command expects 1 parameter with type {types[0]:s}')
         else:
             super().__init__(
                 'command expects {:d} parameters with types: {:s}'.format(
@@ -117,31 +115,29 @@ class G2ResponseTooShortError(G2ResponseDecodeError):
 class G2ResponseMissingTerminatorError(G2ResponseDecodeError):
     """Raised when a hash-terminated response is presented with no '#' character."""
 
-    def __init__(self, buf_len):
+    def __init__(self, buf_len: int):
         super().__init__(
-            'response with length <= {:d} not terminated with a \'#\' character'.format(
-                buf_len
-            )
+            f'response with length <= {buf_len} not terminated with a \'#\' character'
         )
 
 
 class G2ResponseTooFewDelimitersError(G2ResponseDecodeError):
     """Raised when a semicolon-delimited response has fewer semicolons than expected."""
 
-    def __init__(self, buf_len, actual, expected):
+    def __init__(self, buf_len: int, actual: int, expected: int):
         super().__init__(
-            'response contains too few delimiters: length <= {:d}; {:d} fields, '
-            'expected {:d}'.format(buf_len, actual, expected)
+            f'response contains too few delimiters: length <= {buf_len}; '
+            f'{actual} fields, expected {expected}'
         )
 
 
 class G2ResponseChecksumMismatchError(G2ResponseDecodeError):
     """Raised when a native response has a checksum mismatch."""
 
-    def __init__(self, actual, expected):
+    def __init__(self, actual: int, expected: int):
         super().__init__(
-            'checksum mismatch in response to native command: {:02x}, '
-            'expected {:02x}'.format(actual, expected)
+            f'checksum mismatch in response to native command: {actual:02x}, '
+            f'expected {expected:02x}'
         )
 
 
@@ -152,47 +148,43 @@ class G2ResponseParseError(G2ResponseException):
 class G2ResponseIntegerParseError(G2ResponseParseError):
     """Raised when a response cannot be parsed as an integer."""
 
-    def __init__(self, string):
-        super().__init__(f'failed to parse \'{string:s}\' as integer')
+    def __init__(self, string: str):
+        super().__init__(f'failed to parse \'{string}\' as integer')
 
 
 class G2ResponseAngleParseError(G2ResponseParseError):
     """Raised when a response cannot be parsed as an angle."""
 
-    def __init__(self, string, precision):
+    def __init__(self, string: str, precision: str):
         super().__init__(
-            'failed to parse \'{:s}\' as angle ({:s} precision)'.format(
-                string, precision
-            )
+            f'failed to parse \'{string}\' as angle ({precision} precision)'
         )
 
 
 class G2ResponseTimeParseError(G2ResponseParseError):
     """Raised when a response cannot be parsed as a time value."""
 
-    def __init__(self, string, precision):
+    def __init__(self, string: str, precision: str):
         super().__init__(
-            'failed to parse \'{:s}\' as time ({:s} precision)'.format(
-                string, precision
-            )
+            f'failed to parse \'{string}\' as time ({precision} precision)'
         )
 
 
 class G2ResponseRevisionsParseError(G2ResponseParseError):
     """Raised when a response cannot be parsed as an 8-character revision."""
 
-    def __init__(self, string):
+    def __init__(self, string: str):
         super().__init__(
-            'failed to parse \'{:s}\' as G2 native command #97 eight-character '
-            'revisions parameter'.format(string)
+            f'failed to parse \'{string}\' as G2 native command #97 eight-character '
+            'revisions parameter'
         )
 
 
 class G2ResponseIPv4AddressParseError(G2ResponseParseError):
     """Raised when a response cannot be parsed as an IPv4 address."""
 
-    def __init__(self, string):
-        super().__init__(f'failed to parse \'{string:s}\' as IPv4 address')
+    def __init__(self, string: str):
+        super().__init__(f'failed to parse \'{string}\' as IPv4 address')
 
 
 class G2ResponseBoundsViolation(G2ResponseException):
@@ -202,10 +194,10 @@ class G2ResponseBoundsViolation(G2ResponseException):
 class G2ResponseIntegerBoundsViolation(G2ResponseBoundsViolation):
     """Raised when an integer response value is out of bounds."""
 
-    def __init__(self, val, bound_min, bound_max):
+    def __init__(self, val: int, bound_min: int, bound_max: int):
         super().__init__(
-            'successfully-parsed integer {:d} violates its prescribed bounds: '
-            '[{:s}, {:s}]'.format(val, bound_min, bound_max)
+            f'successfully-parsed integer {val} violates its prescribed bounds: '
+            f'[{bound_min}, {bound_max}]'
         )
 
 
