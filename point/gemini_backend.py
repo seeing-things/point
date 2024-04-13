@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from point.gemini_commands import Gemini2Command, Gemini2Response
 import serial
 import socket
 import struct
@@ -29,9 +30,10 @@ class Gemini2Backend(ABC):
         """Disconnect from hardware and release any associated resources."""
 
     @abstractmethod
-    def execute_one_command(self, cmd):
+    def execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
         pass
 
+    # TODO: Remove this (it was never implemented and it's not needed)
     @abstractmethod
     def execute_multiple_commands(self, *cmds):
         pass
@@ -44,7 +46,7 @@ class Gemini2Backend(ABC):
 
 
 class Gemini2BackendSerial(Gemini2Backend):
-    def __init__(self, timeout, devname):
+    def __init__(self, timeout: float, devname: str):
         self._timeout = timeout
         self._devname = devname
 
@@ -56,12 +58,10 @@ class Gemini2BackendSerial(Gemini2Backend):
         """Disconnect from the serial port."""
         self._serial.close()
 
-    def execute_one_command(self, cmd):
+    def execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
         if not cmd.valid_for_serial():
             raise G2BackendCommandNotSupportedError(
-                'command {:s} is not supported on the serial backend'.format(
-                    cmd.__class__.__name__
-                )
+                f'command {cmd.__class__.__name__} not supported on the serial backend'
             )
 
         buf_cmd = cmd.encode()
@@ -80,7 +80,7 @@ class Gemini2BackendSerial(Gemini2Backend):
         # blocked-long-enough.
         # NOTE: we only support the fixed-length decoder for now, to keep things simple
         if resp.decoder().zero_len_hack():
-            assert resp.decoder().type() == self.DecoderType.FIXED_LENGTH
+            assert resp.decoder().type() == Gemini2Response.DecoderType.FIXED_LENGTH
             self._serial.write(b':CE\xff#')
 
         buf_resp = self._wait_for_response(resp)
@@ -100,17 +100,21 @@ class Gemini2BackendSerial(Gemini2Backend):
             'executing multiple commands at once is unsupported via the serial backend'
         )
 
-    def _wait_for_response(self, resp):
-        if resp.decoder().type() == self.DecoderType.FIXED_LENGTH:
+    def _wait_for_response(self, resp: Gemini2Response):
+        # TODO: This seems like rather tight coupling with the Gemini2Response class.
+        # There must be a better way!
+        if resp.decoder().type() == Gemini2Response.DecoderType.FIXED_LENGTH:
             return self._wait_for_response_fixed_length(resp.decoder())
-        elif resp.decoder().type() == self.DecoderType.HASH_TERMINATED:
+        elif resp.decoder().type() == Gemini2Response.DecoderType.HASH_TERMINATED:
             return self._wait_for_response_hash_terminated(resp.decoder())
-        elif resp.decoder().type() == self.DecoderType.SEMICOLON_DELIMITED:
+        elif resp.decoder().type() == Gemini2Response.DecoderType.SEMICOLON_DELIMITED:
             return self._wait_for_response_semicolon_delimited(resp.decoder())
         else:
             assert False
 
-    def _wait_for_response_fixed_length(self, decoder):
+    def _wait_for_response_fixed_length(
+        self, decoder: Gemini2Response.FixedLengthDecoder
+    ):
         if decoder.zero_len_hack():
             buf_resp = self._get_chars(2)
             if buf_resp == '\xff#':
@@ -129,13 +133,17 @@ class Gemini2BackendSerial(Gemini2Backend):
             )
         return buf_resp
 
-    def _wait_for_response_hash_terminated(self, decoder):
+    def _wait_for_response_hash_terminated(
+        self, decoder: Gemini2Response.HashTerminatedDecoder
+    ):
         buf_resp = ''
         while not (len(buf_resp) >= 1 and buf_resp[-1] == '#'):
             buf_resp += self._get_char()
         return buf_resp
 
-    def _wait_for_response_semicolon_delimited(self, decoder):
+    def _wait_for_response_semicolon_delimited(
+        self, decoder: Gemini2Response.SemicolonDelimitedDecoder
+    ):
         buf_resp = ''
         field_count = 0
         while field_count < decoder.num_fields():
@@ -148,13 +156,13 @@ class Gemini2BackendSerial(Gemini2Backend):
             )
         return buf_resp
 
-    def _get_char(self):
+    def _get_char(self) -> str:
         char = self._serial.read(1).decode(self._str_encoding())
         if not char:
             raise G2BackendReadTimeoutError()
         return char
 
-    def _get_chars(self, count):
+    def _get_chars(self, count: int) -> str:
         chars = self._serial.read(count).decode(self._str_encoding())
         assert len(chars) <= count
         if len(chars) != count:
@@ -188,12 +196,12 @@ class Gemini2BackendUDP(Gemini2Backend):
 
     def __init__(
         self,
-        timeout,
-        remote_addr,
-        local_addr=UDP_DEFAULT_LOCAL_ADDR,
-        remote_port=UDP_DEFAULT_REMOTE_PORT,
-        local_port=UDP_DEFAULT_LOCAL_PORT,
-        retry_limit=DEFAULT_RETRY_LIMIT,
+        timeout: float,
+        remote_addr: str,
+        local_addr: str = UDP_DEFAULT_LOCAL_ADDR,
+        remote_port: int = UDP_DEFAULT_REMOTE_PORT,
+        local_port: int = UDP_DEFAULT_LOCAL_PORT,
+        retry_limit: int = DEFAULT_RETRY_LIMIT,
     ):
         self._timeout = timeout
 
@@ -221,7 +229,7 @@ class Gemini2BackendUDP(Gemini2Backend):
         """Close the socket connection."""
         self._sock.close()
 
-    def execute_one_command(self, cmd):
+    def execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
         self._command_lock.acquire()
         try:
             resp = self._execute_one_command(cmd)
@@ -229,7 +237,7 @@ class Gemini2BackendUDP(Gemini2Backend):
             self._command_lock.release()
         return resp
 
-    def _execute_one_command(self, cmd):
+    def _execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
         if not cmd.valid_for_udp():
             raise G2BackendCommandNotSupportedError(
                 'command {:s} is not supported on the UDP backend'.format(
@@ -303,8 +311,9 @@ class Gemini2BackendUDP(Gemini2Backend):
 
             if len(buf_resp) > self.UDP_RESP_DGRAM_LEN_MAX:
                 raise G2BackendResponseError(
-                    'received UDP response datagram larger than max length: {:d} > {:d}'
-                    .format(len(buf_resp), self.UDP_RESP_DGRAM_LEN_MAX)
+                    'received UDP response datagram larger than max length: {:d} > {:d}'.format(
+                        len(buf_resp), self.UDP_RESP_DGRAM_LEN_MAX
+                    )
                 )
             elif len(buf_resp) < self.UDP_RESP_DGRAM_LEN_MIN:
                 raise G2BackendResponseError(
@@ -400,10 +409,10 @@ class Gemini2BackendUDP(Gemini2Backend):
         # TODO: implement this!
         raise G2BackendFeatureNotImplementedYetError('TODO')
 
-    def _synchronously_send_and_recv(self, chars):
+    def _synchronously_send_and_recv(self, chars: str):
         # TODO: use this as the underlying function for the bulk of the common datagram
         # handling stuff in both execute_one_command and execute_multiple_commands.
         raise G2BackendFeatureNotImplementedYetError('TODO')
 
-    def get_statistic(self, key):
+    def get_statistic(self, key: str) -> int:
         return self._stats[key]
