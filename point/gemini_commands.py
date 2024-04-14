@@ -1204,7 +1204,7 @@ class G2Rsp_PECBootPlayback_Get(Gemini2Response_Native):
     def interpret(self):
         self._enabled = parse_int_bounds(self.get_raw(), 0, 1)
 
-    def get(self):
+    def get(self) -> bool:
         return self._enabled != 0
 
 
