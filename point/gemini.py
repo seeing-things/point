@@ -39,12 +39,15 @@ from point.gemini_commands import (
     G2Cmd_StartupCheck,
     G2Cmd_SyncToObject,
     G2Cmd_TogglePrecision,
+    G2PECStatus,
+    G2Precision,
+    G2StartupMode,
+    G2StartupStatus,
     G2Stopped,
+    Gemini2Command,
+    Gemini2Response,
 )
 from point.gemini_exceptions import Gemini2Exception
-
-
-__all__ = ['Gemini2']
 
 
 # TODO: Handle UDP response timeouts appropriately
@@ -165,11 +168,8 @@ class Gemini2:
         """Stop motion and disconnect from the mount."""
         self.shutdown()
 
-    def exec_cmd(self, cmd):
+    def exec_cmd(self, cmd: Gemini2Command) -> Gemini2Response | None:
         return self._backend.execute_one_command(cmd)
-
-    def exec_cmds(self, *cmds):
-        return self._backend.execute_multiple_commands(*cmds)
 
     ## Commands
     # All commands in the following sections are placed in the same order as
@@ -178,29 +178,29 @@ class Gemini2:
 
     ### Special Commands
 
-    def startup_check(self):
+    def startup_check(self) -> G2StartupStatus:
         """Check startup state and type of mount."""
         return self.exec_cmd(G2Cmd_StartupCheck()).get()
 
-    def select_startup_mode(self, mode):
+    def select_startup_mode(self, mode: G2StartupMode) -> None:
         self.exec_cmd(G2Cmd_SelectStartupMode(mode))
 
     ### Macro Commands
 
-    def enq_macro(self):
+    def enq_macro(self) -> dict:
         return self.exec_cmd(G2Cmd_MacroENQ()).get()
 
     ### Synchronization Commands
 
-    def echo(self, char):
+    def echo(self, char: str) -> str:
         """Test command. Should return the same character as the argument."""
         return self.exec_cmd(G2Cmd_Echo(char)).get()
 
-    def align_to_object(self):
+    def align_to_object(self) -> str:
         """Add selected object to pointing model."""
         return self.exec_cmd(G2Cmd_AlignToObject()).get()
 
-    def sync_to_object(self):
+    def sync_to_object(self) -> str:
         """Synchronize to selected object."""
         return self.exec_cmd(G2Cmd_SyncToObject()).get()
 
@@ -460,20 +460,20 @@ class Gemini2:
 
     ### Object/Observing/Output Commands
 
-    def set_object_name(self, name):
+    def set_object_name(self, name: str) -> None:
         self.exec_cmd(G2Cmd_SetObjectName(name))
 
     ### Precession and Refraction Commands
 
     ### Precision Commands
 
-    def get_precision(self):
+    def get_precision(self) -> G2Precision:
         return self.exec_cmd(G2Cmd_GetPrecision()).get()
 
-    def toggle_precision(self):
+    def toggle_precision(self) -> None:
         self.exec_cmd(G2Cmd_TogglePrecision())
 
-    def set_double_precision(self):
+    def set_double_precision(self) -> None:
         self.exec_cmd(G2Cmd_SetDblPrecision())
 
     ### Quit Motion Commands
@@ -482,74 +482,74 @@ class Gemini2:
 
     ### Set Commands
 
-    def set_object_ra(self, ra):
+    def set_object_ra(self, ra: float) -> None:
         self.exec_cmd(G2Cmd_SetObjectRA(ra))
 
-    def set_object_dec(self, dec):
+    def set_object_dec(self, dec: float) -> None:
         self.exec_cmd(G2Cmd_SetObjectDec(dec))
 
-    def set_site_longitude(self, lon):
+    def set_site_longitude(self, lon: float) -> None:
         self.exec_cmd(G2Cmd_SetSiteLongitude(lon))
 
-    def set_site_latitude(self, lat):
+    def set_site_latitude(self, lat: float) -> None:
         self.exec_cmd(G2Cmd_SetSiteLatitude(lat))
 
     ### Site Selection Commands
 
-    def set_stored_site(self, site):
+    def set_stored_site(self, site: int) -> None:
         self.exec_cmd(G2Cmd_SetStoredSite(site))
 
-    def get_stored_site(self):
+    def get_stored_site(self) -> int:
         return self.exec_cmd(G2Cmd_GetStoredSite()).get()
 
     ### Native Commands
 
-    def set_pec_boot_playback(self, enable):
+    def set_pec_boot_playback(self, enable: bool) -> None:
         self.exec_cmd(G2Cmd_PECBootPlayback_Set(enable))
 
-    def get_pec_boot_playback(self):
+    def get_pec_boot_playback(self) -> bool:
         return self.exec_cmd(G2Cmd_PECBootPlayback_Get()).get()
 
-    def set_pec_status(self, status):
+    def set_pec_status(self, status: G2PECStatus) -> None:
         """See G2PECStatus in gemini_commands.py for the possible status values."""
         self.exec_cmd(G2Cmd_PECStatus_Set(status))
 
-    def get_pec_status(self):
+    def get_pec_status(self) -> G2PECStatus:
         """See G2PECStatus in gemini_commands.py for the possible status values."""
         return self.exec_cmd(G2Cmd_PECStatus_Get()).get()
 
-    def set_pec_replay(self, enable):
+    def set_pec_replay(self, enable: bool) -> None:
         if enable:
             self.exec_cmd(G2Cmd_PECReplayOn_Set())
         else:
             self.exec_cmd(G2Cmd_PECReplayOff_Set())
 
-    def set_ntp_server_addr(self, addr):
+    def set_ntp_server_addr(self, addr: str | ipaddress.IPv4Address) -> None:
         if isinstance(addr, str):
             addr = ipaddress.IPv4Address(addr)
         self.exec_cmd(G2Cmd_NTPServerAddr_Set(addr))
 
-    def get_ntp_server_addr(self):
+    def get_ntp_server_addr(self) -> ipaddress.IPv4Address:
         return self.exec_cmd(G2Cmd_NTPServerAddr_Get()).get()
 
     ### Undocumented Commands
 
-    def set_ra_divisor(self, div):
+    def set_ra_divisor(self, div: int) -> None:
         self.exec_cmd(G2Cmd_RA_Divisor_Set(div))
 
-    def set_dec_divisor(self, div):
+    def set_dec_divisor(self, div: int) -> None:
         self.exec_cmd(G2Cmd_DEC_Divisor_Set(div))
 
-    def ra_start_movement(self):
+    def ra_start_movement(self) -> None:
         self.exec_cmd(G2Cmd_RA_StartStop_Set(G2Stopped.NOT_STOPPED))
 
-    def ra_stop_movement(self):
+    def ra_stop_movement(self) -> None:
         self.exec_cmd(G2Cmd_RA_StartStop_Set(G2Stopped.STOPPED))
 
-    def dec_start_movement(self):
+    def dec_start_movement(self) -> None:
         self.exec_cmd(G2Cmd_DEC_StartStop_Set(G2Stopped.NOT_STOPPED))
 
-    def dec_stop_movement(self):
+    def dec_stop_movement(self) -> None:
         self.exec_cmd(G2Cmd_DEC_StartStop_Set(G2Stopped.STOPPED))
 
     ### Wrapper Methods
@@ -557,7 +557,7 @@ class Gemini2:
     # commands to provide extra functionality, abstration, or programming
     # convenience.
 
-    def get_unix_time(self):
+    def get_unix_time(self) -> int:
         """Get UNIX time (seconds since 00:00:00 UTC on 1 Jan 1970)."""
         # Slight risk that date and time commands will be inconsistent if
         # one is called just before UTC midnight and the other is called just
@@ -583,7 +583,7 @@ class Gemini2:
         )
         return calendar.timegm(t.timetuple())
 
-    def set_user_object_equatorial(self, ra, dec, name=''):
+    def set_user_object_equatorial(self, ra: float, dec: float, name: str = '') -> None:
         self.set_object_ra(ra)
         if name != '':
             self.set_object_name(name)
@@ -850,7 +850,9 @@ class Gemini2:
         return rate_desired
 
     def _apply_rate_step_limit(
-        self, rate_desired: float, rate_last_commanded: float
+        self,
+        rate_desired: float,
+        rate_last_commanded: float,
     ) -> float:
         """Apply the slew rate step limit to the desired rate, if enabled.
 
@@ -875,8 +877,11 @@ class Gemini2:
         return rate_desired
 
     def _set_divisor(
-        self, axis: str, div: int, div_last_commanded: int | None = None
-    ):
+        self,
+        axis: str,
+        div: int,
+        div_last_commanded: int | None = None,
+    ) -> None:
         """Set the divisor value for one mount axis to control slew rate.
 
         For the RA axis this also handles sending the stop/start movement commands if
@@ -934,7 +939,7 @@ class Gemini2:
         # TODO: Replace hard-coded constants with values read from Gemini in constructor
         return 12e6 / (6400.0 * div)
 
-    def stop_motion(self):
+    def stop_motion(self) -> None:
         """Stops motion on both axes.
 
         Stops motion on both axes. Blocks until slew rates have reached zero, which may
@@ -968,7 +973,7 @@ class Gemini2:
                 if actual_rate_ra == 0.0 and actual_rate_dec == 0.0:
                     return
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Bring mount into a safe state in preparation for program end and disconnects.
 
         This is similar to `stop_motion()` but with the following additions:
