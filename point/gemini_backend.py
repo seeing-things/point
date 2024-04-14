@@ -27,12 +27,8 @@ class Gemini2Backend(ABC):
     def disconnect(self) -> None:
         """Disconnect from hardware and release any associated resources."""
 
-    # TODO: This should always return a Gemini2Response even if the command has no
-    # response. This will improve type checking usefulness. Make a null response
-    # subclass of Gemini2Response for commands with no response, where all the methods
-    # do nothing or raise an exception or whatever makes the most sense.
     @abstractmethod
-    def execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
+    def execute_one_command(self, cmd: Gemini2Command) -> None:
         pass
 
     def _str_encoding(self):
@@ -55,7 +51,7 @@ class Gemini2BackendSerial(Gemini2Backend):
         """Disconnect from the serial port."""
         self._serial.close()
 
-    def execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
+    def execute_one_command(self, cmd: Gemini2Command) -> None:
         if not cmd.valid_for_serial():
             raise G2BackendCommandNotSupportedError(
                 f'command {cmd.__class__.__name__} not supported on the serial backend'
@@ -66,9 +62,9 @@ class Gemini2BackendSerial(Gemini2Backend):
         self._serial.write(buf_cmd.encode(self._str_encoding()))
         self._serial.reset_input_buffer()
 
-        resp = cmd.response()
+        resp = cmd.response
         if resp is None:
-            return None
+            return
 
         # Ugh, we have to have special logic to handle cases where there may be no
         # response at all!
@@ -88,7 +84,6 @@ class Gemini2BackendSerial(Gemini2Backend):
                 'response was decoded, but only {:d} of the {:d} available characters'
                 ' were consumed'.format(len_consumed, len(buf_resp))
             )
-        return resp
 
     def _wait_for_response(self, resp: Gemini2Response):
         # TODO: This seems like rather tight coupling with the Gemini2Response class.
@@ -219,15 +214,14 @@ class Gemini2BackendUDP(Gemini2Backend):
         """Close the socket connection."""
         self._sock.close()
 
-    def execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
+    def execute_one_command(self, cmd: Gemini2Command) -> None:
         self._command_lock.acquire()
         try:
-            resp = self._execute_one_command(cmd)
+            self._execute_one_command(cmd)
         finally:
             self._command_lock.release()
-        return resp
 
-    def _execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
+    def _execute_one_command(self, cmd: Gemini2Command) -> None:
         if not cmd.valid_for_udp():
             raise G2BackendCommandNotSupportedError(
                 'command {:s} is not supported on the UDP backend'.format(
@@ -370,7 +364,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                 )
             buf_resp = buf_resp[:-1]
 
-            resp = cmd.response()
+            resp = cmd.response
             if len(buf_resp) == 1 and buf_resp[0] == '\x06':
                 if resp is not None:
                     raise G2BackendResponseError(
@@ -393,7 +387,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                     )
 
             self._stats['cmd_exec'] += 1
-            return resp
+            return
 
     def _synchronously_send_and_recv(self, chars: str):
         # TODO: use this as the underlying function for the bulk of the common datagram

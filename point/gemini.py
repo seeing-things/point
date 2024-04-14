@@ -10,6 +10,7 @@ from multiprocessing.synchronize import Event as EventType
 from multiprocessing.sharedctypes import Synchronized as ValueType
 from multiprocessing.connection import Connection
 import signal
+from typing import TypeVar
 from point.gemini_backend import Gemini2Backend
 from point.gemini_commands import (
     G2Cmd_AlignToObject,
@@ -46,10 +47,11 @@ from point.gemini_commands import (
     G2StartupStatus,
     G2Stopped,
     Gemini2Command,
-    Gemini2Response,
 )
 from point.gemini_exceptions import Gemini2Exception
 
+
+Gemini2CommandGeneric = TypeVar("Gemini2CommandGeneric", bound=Gemini2Command)
 
 # TODO: Handle UDP response timeouts appropriately
 # TODO: Restore "good" documentation to the classes and functions and stuff
@@ -57,6 +59,7 @@ from point.gemini_exceptions import Gemini2Exception
 
 class Axis(enum.Enum):
     """Mount axis."""
+
     RA = enum.auto()  # Right ascension
     DEC = enum.auto()  # Declination
 
@@ -175,8 +178,19 @@ class Gemini2:
         """Stop motion and disconnect from the mount."""
         self.shutdown()
 
-    def exec_cmd(self, cmd: Gemini2Command) -> Gemini2Response | None:
-        return self._backend.execute_one_command(cmd)
+    def exec_cmd(self, cmd: Gemini2CommandGeneric) -> Gemini2CommandGeneric:
+        """Execute a command.
+
+        Args:
+            cmd: Command to execute.
+
+        Returns:
+            The `cmd` argument. Returning it allows for more compact code in
+            methods that need to access response values stored in the command
+            object.
+        """
+        self._backend.execute_one_command(cmd)
+        return cmd
 
     ## Commands
     # All commands in the following sections are placed in the same order as
@@ -187,7 +201,7 @@ class Gemini2:
 
     def startup_check(self) -> G2StartupStatus:
         """Check startup state and type of mount."""
-        return self.exec_cmd(G2Cmd_StartupCheck()).get()
+        return self.exec_cmd(G2Cmd_StartupCheck()).response.get()
 
     def select_startup_mode(self, mode: G2StartupMode) -> None:
         self.exec_cmd(G2Cmd_SelectStartupMode(mode))
@@ -195,21 +209,21 @@ class Gemini2:
     ### Macro Commands
 
     def enq_macro(self) -> dict:
-        return self.exec_cmd(G2Cmd_MacroENQ()).get()
+        return self.exec_cmd(G2Cmd_MacroENQ()).response.get()
 
     ### Synchronization Commands
 
     def echo(self, char: str) -> str:
         """Test command. Should return the same character as the argument."""
-        return self.exec_cmd(G2Cmd_Echo(char)).get()
+        return self.exec_cmd(G2Cmd_Echo(char)).response.get()
 
     def align_to_object(self) -> str:
         """Add selected object to pointing model."""
-        return self.exec_cmd(G2Cmd_AlignToObject()).get()
+        return self.exec_cmd(G2Cmd_AlignToObject()).response.get()
 
     def sync_to_object(self) -> str:
         """Synchronize to selected object."""
-        return self.exec_cmd(G2Cmd_SyncToObject()).get()
+        return self.exec_cmd(G2Cmd_SyncToObject()).response.get()
 
     # TODO: reimplement this
     #    def select_pointing_model(self, num):
@@ -475,7 +489,7 @@ class Gemini2:
     ### Precision Commands
 
     def get_precision(self) -> G2Precision:
-        return self.exec_cmd(G2Cmd_GetPrecision()).get()
+        return self.exec_cmd(G2Cmd_GetPrecision()).response.get()
 
     def toggle_precision(self) -> None:
         self.exec_cmd(G2Cmd_TogglePrecision())
@@ -507,7 +521,7 @@ class Gemini2:
         self.exec_cmd(G2Cmd_SetStoredSite(site))
 
     def get_stored_site(self) -> int:
-        return self.exec_cmd(G2Cmd_GetStoredSite()).get()
+        return self.exec_cmd(G2Cmd_GetStoredSite()).response.get()
 
     ### Native Commands
 
@@ -515,7 +529,7 @@ class Gemini2:
         self.exec_cmd(G2Cmd_PECBootPlayback_Set(enable))
 
     def get_pec_boot_playback(self) -> bool:
-        return self.exec_cmd(G2Cmd_PECBootPlayback_Get()).get()
+        return self.exec_cmd(G2Cmd_PECBootPlayback_Get()).response.get()
 
     def set_pec_status(self, status: G2PECStatus) -> None:
         """See G2PECStatus in gemini_commands.py for the possible status values."""
@@ -523,7 +537,7 @@ class Gemini2:
 
     def get_pec_status(self) -> G2PECStatus:
         """See G2PECStatus in gemini_commands.py for the possible status values."""
-        return self.exec_cmd(G2Cmd_PECStatus_Get()).get()
+        return self.exec_cmd(G2Cmd_PECStatus_Get()).response.get()
 
     def set_pec_replay(self, enable: bool) -> None:
         if enable:
@@ -537,7 +551,7 @@ class Gemini2:
         self.exec_cmd(G2Cmd_NTPServerAddr_Set(addr))
 
     def get_ntp_server_addr(self) -> ipaddress.IPv4Address:
-        return self.exec_cmd(G2Cmd_NTPServerAddr_Get()).get()
+        return self.exec_cmd(G2Cmd_NTPServerAddr_Get()).response.get()
 
     ### Undocumented Commands
 

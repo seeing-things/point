@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 import re
 import ipaddress
 from curses.ascii import isgraph
@@ -231,6 +232,10 @@ def compute_native_checksum(cmd_str: str) -> int:
 
 class Gemini2Command(ABC):
 
+    # Response from the command. Individual commands may set this to subclasses of
+    # Gemini2Response. None means no response is expected.
+    response: Gemini2Response | None = None
+
     @abstractmethod
     def encode(self) -> str:
         """Encode a command into a string ready for transmission on the backend.
@@ -244,15 +249,6 @@ class Gemini2Command(ABC):
         Returns:
             String containing fully encoded raw command with prefix, postfix, checksum,
             etc.
-        """
-
-    @abstractmethod
-    def response(self) -> Gemini2Response | None:
-        """Get the response from the command.
-
-        Returns:
-            A `Gemini2Response`-derived object if this command expects a response or
-            None if this command does not expect a response.
         """
 
     def valid_for_serial(self) -> bool:
@@ -341,11 +337,6 @@ class Gemini2Command_LX200(Gemini2Command):
         self._check_bad_chars(cmd_str, ['#', '\x00', '\x06'])
 
 
-class Gemini2Command_LX200_NoReply(Gemini2Command_LX200):
-    def response(self):
-        return None
-
-
 # --------------------------------------------------------------------------------------
 
 
@@ -400,10 +391,6 @@ class Gemini2Command_Native_Get(Gemini2Command_Native):
 class Gemini2Command_Native_Set(Gemini2Command_Native):
     def native_prefix(self) -> str:
         return '>'
-
-    # TODO: verify whether this is correct, or if SET's ever respond with stuff
-    def response(self):
-        return None
 
 
 ########################################################################################
@@ -763,11 +750,6 @@ UINT32_MAX = (1 << 32) - 1
 ### Special Commands
 
 
-class G2Cmd_StartupCheck(Gemini2Command_ACK):
-    def response(self):
-        return G2Rsp_StartupCheck()
-
-
 class G2Rsp_StartupCheck(Gemini2Response_ACK):
     def interpret(self) -> None:
         self._status = G2StartupStatus(
@@ -778,7 +760,12 @@ class G2Rsp_StartupCheck(Gemini2Response_ACK):
         return self._status
 
 
-class G2Cmd_SelectStartupMode(Gemini2Command_LX200_NoReply):
+@dataclass
+class G2Cmd_StartupCheck(Gemini2Command_ACK):
+    response: G2Rsp_StartupCheck = field(default_factory=G2Rsp_StartupCheck, init=False)
+
+
+class G2Cmd_SelectStartupMode(Gemini2Command_LX200):
     def __init__(self, mode: G2StartupMode):
         if not isinstance(mode, G2StartupMode):
             raise G2CommandParameterTypeError('G2StartupMode')
@@ -789,17 +776,6 @@ class G2Cmd_SelectStartupMode(Gemini2Command_LX200_NoReply):
 
 
 ### Macro Commands
-
-
-class G2Cmd_MacroENQ(Gemini2Command_Macro):
-    def cmd_str(self):
-        return '\x05'
-
-    def response(self):
-        return G2Rsp_MacroENQ()
-
-    def valid_for_serial(self):
-        return False  # only valid on UDP backend
 
 
 class G2Rsp_MacroENQ(Gemini2Response_Macro):
@@ -866,32 +842,35 @@ class G2Rsp_MacroENQ(Gemini2Response_Macro):
         return self._values
 
 
+@dataclass
+class G2Cmd_MacroENQ(Gemini2Command_Macro):
+    response: G2Rsp_MacroENQ = field(default_factory=G2Rsp_MacroENQ, init=False)
+
+    def cmd_str(self):
+        return '\x05'
+
+    def valid_for_serial(self):
+        return False  # only valid on UDP backend
+
+
 ### Synchronization Commands
-
-
-class G2Cmd_Echo(Gemini2Command_LX200):
-    def __init__(self, char: str):
-        if (not isinstance(char, str)) or (len(char) != 1):
-            raise G2CommandParameterTypeError('char')
-        self._char = char
-
-    def lx200_str(self):
-        return f'CE{self._char:s}'
-
-    def response(self):
-        return G2Rsp_Echo()
 
 
 class G2Rsp_Echo(Gemini2Response_LX200):
     pass
 
 
-class G2Cmd_AlignToObject(Gemini2Command_LX200):
-    def lx200_str(self):
-        return 'Cm'
+class G2Cmd_Echo(Gemini2Command_LX200):
+    response: G2Rsp_Echo
 
-    def response(self):
-        return G2Rsp_AlignToObject()
+    def __init__(self, char: str):
+        if (not isinstance(char, str)) or (len(char) != 1):
+            raise G2CommandParameterTypeError('char')
+        self._char = char
+        self.response = G2Rsp_Echo()
+
+    def lx200_str(self):
+        return f'CE{self._char:s}'
 
 
 class G2Rsp_AlignToObject(Gemini2Response_LX200):
@@ -900,18 +879,28 @@ class G2Rsp_AlignToObject(Gemini2Response_LX200):
             raise G2ResponseInterpretationFailure()
 
 
-class G2Cmd_SyncToObject(Gemini2Command_LX200):
-    def lx200_str(self):
-        return 'CM'
+@dataclass
+class G2Cmd_AlignToObject(Gemini2Command_LX200):
+    response: G2Rsp_AlignToObject = field(
+        default_factory=G2Rsp_AlignToObject, init=False
+    )
 
-    def response(self):
-        return G2Rsp_SyncToObject()
+    def lx200_str(self):
+        return 'Cm'
 
 
 class G2Rsp_SyncToObject(Gemini2Response_LX200):
     def interpret(self) -> None:
         if self.get_raw() == 'No object!':
             raise G2ResponseInterpretationFailure()
+
+
+@dataclass
+class G2Cmd_SyncToObject(Gemini2Command_LX200):
+    response: G2Rsp_SyncToObject = field(default_factory=G2Rsp_SyncToObject, init=False)
+
+    def lx200_str(self):
+        return 'CM'
 
 
 # ...
@@ -945,7 +934,7 @@ class G2Rsp_SyncToObject(Gemini2Response_LX200):
 ### Object/Observing/Output Commands
 
 
-class G2Cmd_SetObjectName(Gemini2Command_LX200_NoReply):
+class G2Cmd_SetObjectName(Gemini2Command_LX200):
     def __init__(self, name: str):
         if name == '':
             raise G2CommandParameterValueError('name cannot be empty')
@@ -968,14 +957,6 @@ class G2Cmd_SetObjectName(Gemini2Command_LX200_NoReply):
 ### Precision Commands
 
 
-class G2Cmd_GetPrecision(Gemini2Command_LX200):
-    def lx200_str(self):
-        return 'P'
-
-    def response(self):
-        return G2Rsp_GetPrecision()
-
-
 class G2Rsp_GetPrecision(Gemini2Response_LX200_FixedLength):
     def fixed_len(self):
         return 14
@@ -989,12 +970,20 @@ class G2Rsp_GetPrecision(Gemini2Response_LX200_FixedLength):
         return self._precision
 
 
-class G2Cmd_TogglePrecision(Gemini2Command_LX200_NoReply):
+@dataclass
+class G2Cmd_GetPrecision(Gemini2Command_LX200):
+    response: G2Rsp_GetPrecision = field(default_factory=G2Rsp_GetPrecision, init=False)
+
+    def lx200_str(self):
+        return 'P'
+
+
+class G2Cmd_TogglePrecision(Gemini2Command_LX200):
     def lx200_str(self):
         return 'U'
 
 
-class G2Cmd_SetDblPrecision(Gemini2Command_LX200_NoReply):
+class G2Cmd_SetDblPrecision(Gemini2Command_LX200):
     def lx200_str(self):
         return 'u'
 
@@ -1010,21 +999,6 @@ class G2Cmd_SetDblPrecision(Gemini2Command_LX200_NoReply):
 
 
 ### Set Commands
-
-
-class G2Cmd_SetObjectRA(Gemini2Command_LX200):
-    def __init__(self, ra: float):
-        if ra < 0.0 or ra >= 360.0:
-            raise G2CommandParameterValueError('ra must be >= 0.0 and < 360.0')
-        _, self._hour, self._min, self._sec = ang_to_hourminsec(ra)
-
-    def lx200_str(self):
-        return f'Sr{self._hour:02d}:{self._min:02d}:{self._sec:02d}'
-
-    def response(self):
-        return G2Rsp_SetObjectRA()
-
-
 class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
     def fixed_len(self):
         return 1
@@ -1037,18 +1011,17 @@ class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
             raise G2ResponseInterpretationFailure()
 
 
-class G2Cmd_SetObjectDec(Gemini2Command_LX200):
-    def __init__(self, dec: float):
-        if dec < -90.0 or dec > 90.0:
-            raise G2CommandParameterValueError('dec must be >= -90.0 and <= 90.0')
-        sign, self._deg, self._min, self._sec = ang_to_degminsec(dec)
-        self._signchar = '+' if sign >= 0 else '-'
+class G2Cmd_SetObjectRA(Gemini2Command_LX200):
+    response: G2Rsp_SetObjectRA
+
+    def __init__(self, ra: float):
+        if ra < 0.0 or ra >= 360.0:
+            raise G2CommandParameterValueError('ra must be >= 0.0 and < 360.0')
+        _, self._hour, self._min, self._sec = ang_to_hourminsec(ra)
+        self.response = G2Rsp_SetObjectRA()
 
     def lx200_str(self):
-        return f'Sd{self._signchar}{self._deg:02d}:{self._min:02d}:{self._sec:02d}'
-
-    def response(self):
-        return G2Rsp_SetObjectDec()
+        return f'Sr{self._hour:02d}:{self._min:02d}:{self._sec:02d}'
 
 
 class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
@@ -1063,20 +1036,18 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
         # NOTE: only objects which are currently above the horizon are considered valid
 
 
-class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
-    def __init__(self, lon: float):
-        if lon <= -360.0 or lon >= 360.0:
-            raise G2CommandParameterValueError('lon must be > -360.0 and < 360.0')
-        sign, self._deg, self._min = ang_to_degmin(lon)
-        # everyone else in the world uses positive to mean eastern longitudes; but not
-        # LX200!
-        self._signchar = '-' if sign >= 0 else '+'
+class G2Cmd_SetObjectDec(Gemini2Command_LX200):
+    response: G2Rsp_SetObjectDec
+
+    def __init__(self, dec: float):
+        if dec < -90.0 or dec > 90.0:
+            raise G2CommandParameterValueError('dec must be >= -90.0 and <= 90.0')
+        sign, self._deg, self._min, self._sec = ang_to_degminsec(dec)
+        self._signchar = '+' if sign >= 0 else '-'
+        self.response = G2Rsp_SetObjectDec()
 
     def lx200_str(self):
-        return f'Sg{self._signchar:s}{self._deg:03d}*{self._min:02d}'
-
-    def response(self):
-        return G2Rsp_SetSiteLongitude()
+        return f'Sd{self._signchar}{self._deg:02d}:{self._min:02d}:{self._sec:02d}'
 
 
 class G2Rsp_SetSiteLongitude(Gemini2Response_LX200_FixedLengthOrZero):
@@ -1090,18 +1061,20 @@ class G2Rsp_SetSiteLongitude(Gemini2Response_LX200_FixedLengthOrZero):
             raise G2ResponseInterpretationFailure()  # ???
 
 
-class G2Cmd_SetSiteLatitude(Gemini2Command_LX200):
-    def __init__(self, lat: float):
-        if lat < -90.0 or lat > 90.0:
-            raise G2CommandParameterValueError('lat must be >= -90.0 and <= 90.0')
-        sign, self._deg, self._min = ang_to_degmin(lat)
-        self._signchar = '+' if sign >= 0.0 else '-'
+class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
+    response: G2Rsp_SetSiteLongitude
+
+    def __init__(self, lon: float):
+        if lon <= -360.0 or lon >= 360.0:
+            raise G2CommandParameterValueError('lon must be > -360.0 and < 360.0')
+        sign, self._deg, self._min = ang_to_degmin(lon)
+        # everyone else in the world uses positive to mean eastern longitudes; but not
+        # LX200!
+        self._signchar = '-' if sign >= 0 else '+'
+        self.response = G2Rsp_SetSiteLongitude()
 
     def lx200_str(self):
-        return f'St{self._signchar:s}{self._deg:02d}*{self._min:02d}'
-
-    def response(self):
-        return G2Rsp_SetSiteLatitude()
+        return f'Sg{self._signchar:s}{self._deg:03d}*{self._min:02d}'
 
 
 class G2Rsp_SetSiteLatitude(Gemini2Response_LX200_FixedLengthOrZero):
@@ -1115,13 +1088,27 @@ class G2Rsp_SetSiteLatitude(Gemini2Response_LX200_FixedLengthOrZero):
             raise G2ResponseInterpretationFailure()  # ???
 
 
+class G2Cmd_SetSiteLatitude(Gemini2Command_LX200):
+    response: G2Rsp_SetSiteLatitude
+
+    def __init__(self, lat: float):
+        if lat < -90.0 or lat > 90.0:
+            raise G2CommandParameterValueError('lat must be >= -90.0 and <= 90.0')
+        sign, self._deg, self._min = ang_to_degmin(lat)
+        self._signchar = '+' if sign >= 0.0 else '-'
+        self.response = G2Rsp_SetSiteLatitude()
+
+    def lx200_str(self):
+        return f'St{self._signchar:s}{self._deg:02d}*{self._min:02d}'
+
+
 # ...
 
 
 ### Site Selection Commands
 
 
-class G2Cmd_SetStoredSite(Gemini2Command_LX200_NoReply):
+class G2Cmd_SetStoredSite(Gemini2Command_LX200):
     def __init__(self, site: int):
         """
         Args:
@@ -1137,19 +1124,6 @@ class G2Cmd_SetStoredSite(Gemini2Command_LX200_NoReply):
         return f'W{self._site:d}'
 
 
-# NOTE: the official Gemini 2 serial command documentation is WRONG here:
-#       the range for sites is 0-4 inclusive, not 0-3 inclusive
-class G2Cmd_GetStoredSite(Gemini2Command_LX200):
-    """Note that the official Gemini 2 serial command documentation is wrong: the range
-    for sites is 0-4 inclusive, not 0-3 inclusive."""
-
-    def lx200_str(self):
-        return 'W?'
-
-    def response(self):
-        return G2Rsp_GetStoredSite()
-
-
 class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
     def fixed_len(self):
         return 1
@@ -1159,6 +1133,19 @@ class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
 
     def get(self) -> int:
         return self._site
+
+
+@dataclass
+class G2Cmd_GetStoredSite(Gemini2Command_LX200):
+    """Note that the official Gemini 2 serial command documentation is wrong: the range
+    for sites is 0-4 inclusive, not 0-3 inclusive."""
+
+    response: G2Rsp_GetStoredSite = field(
+        default_factory=G2Rsp_GetStoredSite, init=False
+    )
+
+    def lx200_str(self):
+        return 'W?'
 
 
 # ...
@@ -1189,20 +1176,22 @@ class G2Cmd_PECBootPlayback_Set(Gemini2Command_Native_Set):
         return '1' if self._enable else '0'
 
 
-class G2Cmd_PECBootPlayback_Get(Gemini2Command_Native_Get):
-    def native_id(self):
-        return 508
-
-    def response(self):
-        return G2Rsp_PECBootPlayback_Get()
-
-
 class G2Rsp_PECBootPlayback_Get(Gemini2Response_Native):
     def interpret(self):
         self._enabled = parse_int_bounds(self.get_raw(), 0, 1)
 
     def get(self) -> bool:
         return self._enabled != 0
+
+
+@dataclass
+class G2Cmd_PECBootPlayback_Get(Gemini2Command_Native_Get):
+    response: G2Rsp_PECBootPlayback_Get = field(
+        default_factory=G2Rsp_PECBootPlayback_Get, init=False
+    )
+
+    def native_id(self):
+        return 508
 
 
 class G2Cmd_PECStatus_Set(Gemini2Command_Native_Set):
@@ -1218,14 +1207,6 @@ class G2Cmd_PECStatus_Set(Gemini2Command_Native_Set):
         return str(self._status.value)
 
 
-class G2Cmd_PECStatus_Get(Gemini2Command_Native_Get):
-    def native_id(self):
-        return 509
-
-    def response(self):
-        return G2Rsp_PECStatus_Get()
-
-
 class G2Rsp_PECStatus_Get(Gemini2Response_Native):
     def interpret(self):
         # Raises ValueError if the response field value isn't in the enum.
@@ -1233,6 +1214,16 @@ class G2Rsp_PECStatus_Get(Gemini2Response_Native):
 
     def get(self):
         return self._status
+
+
+@dataclass
+class G2Cmd_PECStatus_Get(Gemini2Command_Native_Get):
+    response: G2Rsp_PECStatus_Get = field(
+        default_factory=G2Rsp_PECStatus_Get, init=False
+    )
+
+    def native_id(self):
+        return 509
 
 
 class G2Cmd_PECReplayOn_Set(Gemini2Command_Native_Set):
@@ -1258,20 +1249,22 @@ class G2Cmd_NTPServerAddr_Set(Gemini2Command_Native_Set):
         return str(self._addr)
 
 
-class G2Cmd_NTPServerAddr_Get(Gemini2Command_Native_Get):
-    def native_id(self):
-        return 816
-
-    def response(self):
-        return G2Rsp_NTPServerAddr_Get()
-
-
 class G2Rsp_NTPServerAddr_Get(Gemini2Response_Native):
     def interpret(self):
         self._addr = parse_ip4vaddr(self.get_raw())
 
     def get(self) -> ipaddress.IPv4Address:
         return self._addr
+
+
+@dataclass
+class G2Cmd_NTPServerAddr_Get(Gemini2Command_Native_Get):
+    response: G2Rsp_NTPServerAddr_Get = field(
+        default_factory=G2Rsp_NTPServerAddr_Get, init=False
+    )
+
+    def native_id(self):
+        return 816
 
 
 # ...
