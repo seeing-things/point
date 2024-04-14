@@ -85,7 +85,7 @@ class Gemini2BackendSerial(Gemini2Backend):
                 ' were consumed'.format(len_consumed, len(buf_resp))
             )
 
-    def _wait_for_response(self, resp: Gemini2Response):
+    def _wait_for_response(self, resp: Gemini2Response) -> str:
         # TODO: This seems like rather tight coupling with the Gemini2Response class.
         # There must be a better way!
         if resp.decoder().type() == Gemini2Response.DecoderType.FIXED_LENGTH:
@@ -99,7 +99,7 @@ class Gemini2BackendSerial(Gemini2Backend):
 
     def _wait_for_response_fixed_length(
         self, decoder: Gemini2Response.FixedLengthDecoder
-    ):
+    ) -> str:
         if decoder.zero_len_hack():
             buf_resp = self._get_chars(2)
             if buf_resp == '\xff#':
@@ -120,7 +120,7 @@ class Gemini2BackendSerial(Gemini2Backend):
 
     def _wait_for_response_hash_terminated(
         self, decoder: Gemini2Response.HashTerminatedDecoder
-    ):
+    ) -> str:
         buf_resp = ''
         while not (len(buf_resp) >= 1 and buf_resp[-1] == '#'):
             buf_resp += self._get_char()
@@ -128,7 +128,7 @@ class Gemini2BackendSerial(Gemini2Backend):
 
     def _wait_for_response_semicolon_delimited(
         self, decoder: Gemini2Response.SemicolonDelimitedDecoder
-    ):
+    ) -> str:
         buf_resp = ''
         field_count = 0
         while field_count < decoder.num_fields():

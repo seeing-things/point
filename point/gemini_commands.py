@@ -7,6 +7,7 @@ from curses.ascii import isgraph
 import enum
 from enum import Enum, Flag, IntEnum
 from collections.abc import Iterable
+from typing import Any
 from point.gemini_exceptions import (
     G2ResponseIntegerParseError,
     G2ResponseParseError,
@@ -512,7 +513,7 @@ class Gemini2Response(ABC):
         self.interpret()
         return num_chars_processed
 
-    def post_decode(self, chars: str) -> str:
+    def post_decode(self, chars: str | list[str]) -> str | list[str]:
         """Optionally implement to do some additional post-decode-step verification."""
         return chars
 
@@ -525,7 +526,7 @@ class Gemini2Response(ABC):
         assert self._decoded
         return self._resp_data
 
-    def get(self):
+    def get(self) -> Any:
         """Override this to return interpreted data instead of the raw response."""
         return self.get_raw()
 
