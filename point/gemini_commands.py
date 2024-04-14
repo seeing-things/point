@@ -216,6 +216,16 @@ def ang_to_degmin(ang: float) -> tuple[int, int, int]:
     return (sign, i_deg, i_min)
 
 
+def compute_native_checksum(cmd_str: str) -> int:
+    """Compute checksum for native commands and responses."""
+    csum = 0
+    for char in cmd_str:
+        csum = csum ^ ord(char)
+    csum = (csum % 128) + 64
+    assert csum >= 0x40 and csum < 0xC0
+    return csum
+
+
 ########################################################################################
 
 
@@ -343,7 +353,7 @@ class Gemini2Command_Native(Gemini2Command):
     def encode(self) -> str:
         params_str = self._make_params_str(self.native_params())
         cmd_str = f'{self.native_prefix()}{self.native_id()}:{params_str}'
-        return f'{cmd_str:s}{chr(self._compute_checksum(cmd_str)):s}#'
+        return f'{cmd_str:s}{chr(compute_native_checksum(cmd_str)):s}#'
 
     @abstractmethod
     def native_id(self) -> int:
@@ -380,15 +390,6 @@ class Gemini2Command_Native(Gemini2Command):
     def _check_validity(self, param_str: str) -> None:
         # TODO: do a more rigorous valid-character-range check here
         self._check_bad_chars(param_str, ['<', '>', ':', '#', '\x00', '\x06'])
-
-    # TODO: move this to somewhere common between cmd and response
-    def _compute_checksum(self, cmd_str: str) -> int:
-        csum = 0
-        for char in cmd_str:
-            csum = csum ^ ord(char)
-        csum = (csum % 128) + 64
-        assert csum >= 0x40 and csum < 0xC0
-        return csum
 
 
 class Gemini2Command_Native_Get(Gemini2Command_Native):
@@ -499,8 +500,7 @@ class Gemini2Response(ABC):
             total_len = len(chars)  # !!! REMOVE ME !!!
             return (fields, total_len)
 
-    def __init__(self, cmd: Gemini2Command):
-        self._cmd = cmd
+    def __init__(self):
         self._decoded = False
 
     @abstractmethod
@@ -532,9 +532,6 @@ class Gemini2Response(ABC):
     def interpret(self) -> None:
         """Optionally implement to do cmd-specific interpretation of the response."""
         return None
-
-    def command(self) -> Gemini2Command:
-        return self._cmd
 
     def get_raw(self) -> str | list[str]:
         """Raw response string (or list-of-strings, in the semicolon-delimited case)."""
@@ -603,7 +600,7 @@ class Gemini2Response_Native(Gemini2Response):
             # TODO: Is this a bug? Why return None instead of empty string?
             return
         csum_recv = ord(chars[-1])
-        csum_comp = self.command()._compute_checksum(chars[:-1])
+        csum_comp = compute_native_checksum(chars[:-1])
         if csum_recv != csum_comp:
             raise G2ResponseChecksumMismatchError(csum_recv, csum_comp)
         return chars[:-1]
@@ -768,7 +765,7 @@ UINT32_MAX = (1 << 32) - 1
 
 class G2Cmd_StartupCheck(Gemini2Command_ACK):
     def response(self):
-        return G2Rsp_StartupCheck(self)
+        return G2Rsp_StartupCheck()
 
 
 class G2Rsp_StartupCheck(Gemini2Response_ACK):
@@ -799,7 +796,7 @@ class G2Cmd_MacroENQ(Gemini2Command_Macro):
         return '\x05'
 
     def response(self):
-        return G2Rsp_MacroENQ(self)
+        return G2Rsp_MacroENQ()
 
     def valid_for_serial(self):
         return False  # only valid on UDP backend
@@ -882,7 +879,7 @@ class G2Cmd_Echo(Gemini2Command_LX200):
         return f'CE{self._char:s}'
 
     def response(self):
-        return G2Rsp_Echo(self)
+        return G2Rsp_Echo()
 
 
 class G2Rsp_Echo(Gemini2Response_LX200):
@@ -894,7 +891,7 @@ class G2Cmd_AlignToObject(Gemini2Command_LX200):
         return 'Cm'
 
     def response(self):
-        return G2Rsp_AlignToObject(self)
+        return G2Rsp_AlignToObject()
 
 
 class G2Rsp_AlignToObject(Gemini2Response_LX200):
@@ -908,7 +905,7 @@ class G2Cmd_SyncToObject(Gemini2Command_LX200):
         return 'CM'
 
     def response(self):
-        return G2Rsp_SyncToObject(self)
+        return G2Rsp_SyncToObject()
 
 
 class G2Rsp_SyncToObject(Gemini2Response_LX200):
@@ -976,7 +973,7 @@ class G2Cmd_GetPrecision(Gemini2Command_LX200):
         return 'P'
 
     def response(self):
-        return G2Rsp_GetPrecision(self)
+        return G2Rsp_GetPrecision()
 
 
 class G2Rsp_GetPrecision(Gemini2Response_LX200_FixedLength):
@@ -1025,7 +1022,7 @@ class G2Cmd_SetObjectRA(Gemini2Command_LX200):
         return f'Sr{self._hour:02d}:{self._min:02d}:{self._sec:02d}'
 
     def response(self):
-        return G2Rsp_SetObjectRA(self)
+        return G2Rsp_SetObjectRA()
 
 
 class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
@@ -1051,7 +1048,7 @@ class G2Cmd_SetObjectDec(Gemini2Command_LX200):
         return f'Sd{self._signchar}{self._deg:02d}:{self._min:02d}:{self._sec:02d}'
 
     def response(self):
-        return G2Rsp_SetObjectDec(self)
+        return G2Rsp_SetObjectDec()
 
 
 class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
@@ -1079,7 +1076,7 @@ class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
         return f'Sg{self._signchar:s}{self._deg:03d}*{self._min:02d}'
 
     def response(self):
-        return G2Rsp_SetSiteLongitude(self)
+        return G2Rsp_SetSiteLongitude()
 
 
 class G2Rsp_SetSiteLongitude(Gemini2Response_LX200_FixedLengthOrZero):
@@ -1104,7 +1101,7 @@ class G2Cmd_SetSiteLatitude(Gemini2Command_LX200):
         return f'St{self._signchar:s}{self._deg:02d}*{self._min:02d}'
 
     def response(self):
-        return G2Rsp_SetSiteLatitude(self)
+        return G2Rsp_SetSiteLatitude()
 
 
 class G2Rsp_SetSiteLatitude(Gemini2Response_LX200_FixedLengthOrZero):
@@ -1150,7 +1147,7 @@ class G2Cmd_GetStoredSite(Gemini2Command_LX200):
         return 'W?'
 
     def response(self):
-        return G2Rsp_GetStoredSite(self)
+        return G2Rsp_GetStoredSite()
 
 
 class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
@@ -1197,7 +1194,7 @@ class G2Cmd_PECBootPlayback_Get(Gemini2Command_Native_Get):
         return 508
 
     def response(self):
-        return G2Rsp_PECBootPlayback_Get(self)
+        return G2Rsp_PECBootPlayback_Get()
 
 
 class G2Rsp_PECBootPlayback_Get(Gemini2Response_Native):
@@ -1226,7 +1223,7 @@ class G2Cmd_PECStatus_Get(Gemini2Command_Native_Get):
         return 509
 
     def response(self):
-        return G2Rsp_PECStatus_Get(self)
+        return G2Rsp_PECStatus_Get()
 
 
 class G2Rsp_PECStatus_Get(Gemini2Response_Native):
@@ -1266,7 +1263,7 @@ class G2Cmd_NTPServerAddr_Get(Gemini2Command_Native_Get):
         return 816
 
     def response(self):
-        return G2Rsp_NTPServerAddr_Get(self)
+        return G2Rsp_NTPServerAddr_Get()
 
 
 class G2Rsp_NTPServerAddr_Get(Gemini2Response_Native):
