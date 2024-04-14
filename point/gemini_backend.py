@@ -4,7 +4,6 @@ from point.gemini_commands import Gemini2Command, Gemini2Response
 import serial
 import socket
 import struct
-import string
 import multiprocessing
 from point.gemini_exceptions import (
     G2BackendCommandNotSupportedError,
@@ -366,7 +365,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                 raise G2BackendResponseError(
                     'received UDP response buffer of length {:d} with single NULL'
                     ' terminator at non-end index {:d}'.format(
-                        len(buf_resp), string.rfind(buf_resp, '\x00')
+                        len(buf_resp), buf_resp.rfind('\x00')
                     )
                 )
             buf_resp = buf_resp[:-1]
