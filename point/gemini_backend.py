@@ -73,7 +73,7 @@ class Gemini2BackendSerial(Gemini2Backend):
         # blocked-long-enough.
         # NOTE: we only support the fixed-length decoder for now, to keep things simple
         if resp.decoder().zero_len_hack():
-            assert resp.decoder().type() == Gemini2Response.DecoderType.FIXED_LENGTH
+            assert isinstance(resp.decoder(), Gemini2Response.FixedLengthDecoder)
             self._serial.write(b':CE\xff#')
 
         buf_resp = self._wait_for_response(resp)
@@ -88,11 +88,11 @@ class Gemini2BackendSerial(Gemini2Backend):
     def _wait_for_response(self, resp: Gemini2Response) -> str:
         # TODO: This seems like rather tight coupling with the Gemini2Response class.
         # There must be a better way!
-        if resp.decoder().type() == Gemini2Response.DecoderType.FIXED_LENGTH:
+        if isinstance(resp.decoder(), Gemini2Response.FixedLengthDecoder):
             return self._wait_for_response_fixed_length(resp.decoder())
-        elif resp.decoder().type() == Gemini2Response.DecoderType.HASH_TERMINATED:
+        elif isinstance(resp.decoder(), Gemini2Response.HashTerminatedDecoder):
             return self._wait_for_response_hash_terminated(resp.decoder())
-        elif resp.decoder().type() == Gemini2Response.DecoderType.SEMICOLON_DELIMITED:
+        elif isinstance(resp.decoder(), Gemini2Response.SemicolonDelimitedDecoder):
             return self._wait_for_response_semicolon_delimited(resp.decoder())
         else:
             assert False

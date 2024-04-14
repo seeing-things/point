@@ -399,22 +399,12 @@ class Gemini2Command_Native_Set(Gemini2Command_Native):
 
 class Gemini2Response(ABC):
 
-    class DecoderType(enum.Enum):
-        FIXED_LENGTH = enum.auto()
-        HASH_TERMINATED = enum.auto()
-        SEMICOLON_DELIMITED = enum.auto()
-
     class Decoder(ABC):
         def __init__(
             self,
-            type: Gemini2Response.DecoderType,
             zero_len_hack: bool = False,
         ):
-            self._type = type
             self._zero_len_hack = zero_len_hack
-
-        def type(self):
-            return self._type
 
         # whether we want to be able to process possibly-zero-length responses
         # (this requires a bunch of extra hack garbage in the serial backend)
@@ -434,7 +424,7 @@ class Gemini2Response(ABC):
 
     class FixedLengthDecoder(Decoder):
         def __init__(self, fixed_len: int, zero_len_hack: bool = False):
-            super().__init__(Gemini2Response.DecoderType.FIXED_LENGTH, zero_len_hack)
+            super().__init__(zero_len_hack)
             assert fixed_len >= 0
             self._fixed_len = fixed_len
 
@@ -448,8 +438,6 @@ class Gemini2Response(ABC):
             return (chars[:idx], idx)
 
     class HashTerminatedDecoder(Decoder):
-        def __init__(self):
-            super().__init__(Gemini2Response.DecoderType.HASH_TERMINATED)
 
         def decode(self, chars: str) -> tuple[str, int]:
             idx = chars.find('#')
@@ -469,7 +457,7 @@ class Gemini2Response(ABC):
     # TODO: report this to Rene!
     class SemicolonDelimitedDecoder(Decoder):
         def __init__(self, num_fields: int):
-            super().__init__(Gemini2Response.DecoderType.SEMICOLON_DELIMITED)
+            super().__init__()
             assert num_fields >= 0
             self._num_fields = num_fields
 
@@ -535,7 +523,7 @@ class Gemini2Response(ABC):
 
 
 class Gemini2Response_ACK(Gemini2Response):
-    def decoder(self) -> Gemini2Response.Decoder:
+    def decoder(self):
         return self.HashTerminatedDecoder()
 
 
@@ -543,7 +531,7 @@ class Gemini2Response_ACK(Gemini2Response):
 
 
 class Gemini2Response_Macro(Gemini2Response):
-    def decoder(self) -> Gemini2Response.Decoder:
+    def decoder(self):
         return self.SemicolonDelimitedDecoder(self.field_count())
 
     @abstractmethod
@@ -555,7 +543,7 @@ class Gemini2Response_Macro(Gemini2Response):
 
 
 class Gemini2Response_LX200(Gemini2Response):
-    def decoder(self) -> Gemini2Response.Decoder:
+    def decoder(self):
         return self.HashTerminatedDecoder()
 
 
@@ -563,7 +551,7 @@ class Gemini2Response_LX200(Gemini2Response):
 
 
 class Gemini2Response_LX200_FixedLength(Gemini2Response_LX200):
-    def decoder(self) -> Gemini2Response.Decoder:
+    def decoder(self):
         return self.FixedLengthDecoder(self.fixed_len())
 
     @abstractmethod
@@ -572,7 +560,7 @@ class Gemini2Response_LX200_FixedLength(Gemini2Response_LX200):
 
 
 class Gemini2Response_LX200_FixedLengthOrZero(Gemini2Response_LX200_FixedLength):
-    def decoder(self) -> Gemini2Response.Decoder:
+    def decoder(self):
         return self.FixedLengthDecoder(self.fixed_len(), True)
 
 
@@ -580,7 +568,7 @@ class Gemini2Response_LX200_FixedLengthOrZero(Gemini2Response_LX200_FixedLength)
 
 
 class Gemini2Response_Native(Gemini2Response):
-    def decoder(self) -> Gemini2Response.Decoder:
+    def decoder(self):
         return self.HashTerminatedDecoder()
 
     def post_decode(self, chars: str) -> str:
