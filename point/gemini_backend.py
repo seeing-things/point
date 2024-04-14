@@ -29,6 +29,10 @@ class Gemini2Backend(ABC):
     def disconnect(self) -> None:
         """Disconnect from hardware and release any associated resources."""
 
+    # TODO: This should always return a Gemini2Response even if the command has no
+    # response. This will improve type checking usefulness. Make a null response
+    # subclass of Gemini2Response for commands with no response, where all the methods
+    # do nothing or raise an exception or whatever makes the most sense.
     @abstractmethod
     def execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
         pass
