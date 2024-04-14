@@ -9,7 +9,6 @@ import multiprocessing
 from point.gemini_exceptions import (
     G2BackendCommandNotSupportedError,
     G2BackendResponseError,
-    G2BackendFeatureNotSupportedError,
     G2BackendReadTimeoutError,
     G2BackendCommandError,
     G2BackendFeatureNotImplementedYetError,
@@ -35,11 +34,6 @@ class Gemini2Backend(ABC):
     # do nothing or raise an exception or whatever makes the most sense.
     @abstractmethod
     def execute_one_command(self, cmd: Gemini2Command) -> Gemini2Response | None:
-        pass
-
-    # TODO: Remove this (it was never implemented and it's not needed)
-    @abstractmethod
-    def execute_multiple_commands(self, *cmds):
         pass
 
     def _str_encoding(self):
@@ -96,13 +90,6 @@ class Gemini2BackendSerial(Gemini2Backend):
                 ' were consumed'.format(len_consumed, len(buf_resp))
             )
         return resp
-
-    # TODO: maybe emulate this functionality by calling execute_one_command for each cmd
-    # one at a time, and then bundle up the responses and return them...?
-    def execute_multiple_commands(self, *cmds):
-        raise G2BackendFeatureNotSupportedError(
-            'executing multiple commands at once is unsupported via the serial backend'
-        )
 
     def _wait_for_response(self, resp: Gemini2Response):
         # TODO: This seems like rather tight coupling with the Gemini2Response class.
@@ -409,13 +396,9 @@ class Gemini2BackendUDP(Gemini2Backend):
             self._stats['cmd_exec'] += 1
             return resp
 
-    def execute_multiple_commands(self, *cmds):
-        # TODO: implement this!
-        raise G2BackendFeatureNotImplementedYetError('TODO')
-
     def _synchronously_send_and_recv(self, chars: str):
         # TODO: use this as the underlying function for the bulk of the common datagram
-        # handling stuff in both execute_one_command and execute_multiple_commands.
+        # handling stuff in execute_one_command.
         raise G2BackendFeatureNotImplementedYetError('TODO')
 
     def get_statistic(self, key: str) -> int:
