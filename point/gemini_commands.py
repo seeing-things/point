@@ -335,14 +335,19 @@ class Gemini2Command_LX200(Gemini2Command):
 
 
 class Gemini2Command_Native(Gemini2Command):
+    """
+    Attributes:
+        native_prefix: A single character prefix, '<' for "get" commands and '>' for
+            "set" commands.
+        native_id: The native command ID.
+    """
+    native_prefix: str
+    native_id: int
+
     def encode(self) -> str:
         params_str = self._make_params_str(self.native_params())
-        cmd_str = f'{self.native_prefix()}{self.native_id()}:{params_str}'
+        cmd_str = f'{self.native_prefix}{self.native_id}:{params_str}'
         return f'{cmd_str:s}{chr(compute_native_checksum(cmd_str)):s}#'
-
-    @abstractmethod
-    def native_id(self) -> int:
-        """Get the native command ID number."""
 
     def native_params(self):
         """Get native command parameters.
@@ -354,10 +359,6 @@ class Gemini2Command_Native(Gemini2Command):
             or list of parameters to be sent along with the command.
         """
         return None
-
-    @abstractmethod
-    def native_prefix(self) -> str:
-        pass
 
     # TODO: Make this less complicated by expecting `params` to always be an
     # iterable of strings, even if there are zero or one parameters.
@@ -378,13 +379,11 @@ class Gemini2Command_Native(Gemini2Command):
 
 
 class Gemini2Command_Native_Get(Gemini2Command_Native):
-    def native_prefix(self) -> str:
-        return '<'
+    native_prefix = '<'
 
 
 class Gemini2Command_Native_Set(Gemini2Command_Native):
-    def native_prefix(self) -> str:
-        return '>'
+    native_prefix = '>'
 
 
 ########################################################################################
@@ -1061,23 +1060,22 @@ class G2Cmd_GetStoredSite(Gemini2Command_LX200):
 ### Native Commands
 
 # class G2Cmd_TEST_Native_92_Get(Gemini2Command_Native_Get):
+#    native_id = 92
 #    def __init__(self, val):
 #        if not isinstance(val, int):
 #            raise G2CommandParameterTypeError('int')
 #        self._val = val
-#    def native_id(self):     return 92
 ##    def native_params(self): return '{:d}'.format(self._val)
 #    def response(self):      return None # TODO!
 
 
 class G2Cmd_PECBootPlayback_Set(Gemini2Command_Native_Set):
+    native_id = 508
+
     def __init__(self, enable: bool):
         if not isinstance(enable, bool):
             raise G2CommandParameterTypeError('bool')
         self._enable = enable
-
-    def native_id(self):
-        return 508
 
     def native_params(self):
         return '1' if self._enable else '0'
@@ -1096,19 +1094,16 @@ class G2Cmd_PECBootPlayback_Get(Gemini2Command_Native_Get):
     response: G2Rsp_PECBootPlayback_Get = field(
         default_factory=G2Rsp_PECBootPlayback_Get, init=False
     )
-
-    def native_id(self):
-        return 508
+    native_id = 508
 
 
 class G2Cmd_PECStatus_Set(Gemini2Command_Native_Set):
+    native_id = 509
+
     def __init__(self, status: G2PECStatus):
         if not isinstance(status, G2PECStatus):
             raise G2CommandParameterTypeError('G2PECStatus')
         self._status = status
-
-    def native_id(self):
-        return 509
 
     def native_params(self):
         return str(self._status.value)
@@ -1128,29 +1123,24 @@ class G2Cmd_PECStatus_Get(Gemini2Command_Native_Get):
     response: G2Rsp_PECStatus_Get = field(
         default_factory=G2Rsp_PECStatus_Get, init=False
     )
-
-    def native_id(self):
-        return 509
+    native_id = 509
 
 
 class G2Cmd_PECReplayOn_Set(Gemini2Command_Native_Set):
-    def native_id(self):
-        return 531
+    native_id = 531
 
 
 class G2Cmd_PECReplayOff_Set(Gemini2Command_Native_Set):
-    def native_id(self):
-        return 532
+    native_id = 532
 
 
 class G2Cmd_NTPServerAddr_Set(Gemini2Command_Native_Set):
+    native_id = 816
+
     def __init__(self, addr: ipaddress.IPv4Address):
         if not isinstance(addr, ipaddress.IPv4Address):
             raise G2CommandParameterTypeError('IPv4Address')
         self._addr = addr
-
-    def native_id(self):
-        return 816
 
     def native_params(self):
         return str(self._addr)
@@ -1169,9 +1159,7 @@ class G2Cmd_NTPServerAddr_Get(Gemini2Command_Native_Get):
     response: G2Rsp_NTPServerAddr_Get = field(
         default_factory=G2Rsp_NTPServerAddr_Get, init=False
     )
-
-    def native_id(self):
-        return 816
+    native_id = 816
 
 
 # ...
@@ -1202,13 +1190,11 @@ class G2CmdBase_Divisor_Set(Gemini2Command_Native_Set):
 
 
 class G2Cmd_RA_Divisor_Set(G2CmdBase_Divisor_Set):
-    def native_id(self):
-        return 451
+    native_id = 451
 
 
 class G2Cmd_DEC_Divisor_Set(G2CmdBase_Divisor_Set):
-    def native_id(self):
-        return 452
+    native_id = 452
 
 
 class G2CmdBase_StartStop_Set(Gemini2Command_Native_Set):
@@ -1222,13 +1208,11 @@ class G2CmdBase_StartStop_Set(Gemini2Command_Native_Set):
 
 
 class G2Cmd_RA_StartStop_Set(G2CmdBase_StartStop_Set):
-    def native_id(self):
-        return 453
+    native_id = 453
 
 
 class G2Cmd_DEC_StartStop_Set(G2CmdBase_StartStop_Set):
-    def native_id(self):
-        return 454
+    native_id = 454
 
 
 # TODO: implement GET cmds 451-454
