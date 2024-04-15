@@ -315,23 +315,16 @@ class Gemini2Command_Macro(Gemini2Command):
 
 
 class Gemini2Command_LX200(Gemini2Command):
+    """
+    Attributes:
+        lx200_cmd: The LX200 command string. The value is assigned by the command-
+            specific subclasses and may contain encoded parameters.
+    """
+    lx200_cmd: str
+
     def encode(self) -> str:
-        cmd_str = self.lx200_str()
-        self._check_validity(cmd_str)
-        return f':{cmd_str:s}#'
-
-    @abstractmethod
-    def lx200_str(self) -> str:
-        """Build the LX200 command string.
-
-        Takes params supplied via the constructor or otherwise (if any) and builds the
-        basic command string.
-
-        Implemented at the command-specific subclass level.
-
-        Returns:
-            String containing essential cmd info characters.
-        """
+        self._check_validity(self.lx200_cmd)
+        return f':{self.lx200_cmd}#'
 
     def _check_validity(self, cmd_str: str) -> None:
         # TODO: do a more rigorous valid-character-range check here
@@ -723,10 +716,7 @@ class G2Cmd_SelectStartupMode(Gemini2Command_LX200):
     def __init__(self, mode: G2StartupMode):
         if not isinstance(mode, G2StartupMode):
             raise G2CommandParameterTypeError('G2StartupMode')
-        self._mode = mode
-
-    def lx200_str(self):
-        return f'b{G2StartupMode[self._mode]:s}'
+        self.lx200_cmd = f'b{G2StartupMode[mode]:s}'
 
 
 ### Macro Commands
@@ -817,11 +807,8 @@ class G2Cmd_Echo(Gemini2Command_LX200):
     def __init__(self, char: str):
         if (not isinstance(char, str)) or (len(char) != 1):
             raise G2CommandParameterTypeError('char')
-        self._char = char
+        self.lx200_cmd = f'CE{char}'
         self.response = G2Rsp_Echo()
-
-    def lx200_str(self):
-        return f'CE{self._char:s}'
 
 
 class G2Rsp_AlignToObject(Gemini2Response_LX200):
@@ -835,9 +822,7 @@ class G2Cmd_AlignToObject(Gemini2Command_LX200):
     response: G2Rsp_AlignToObject = field(
         default_factory=G2Rsp_AlignToObject, init=False
     )
-
-    def lx200_str(self):
-        return 'Cm'
+    lx200_cmd = 'Cm'
 
 
 class G2Rsp_SyncToObject(Gemini2Response_LX200):
@@ -849,9 +834,7 @@ class G2Rsp_SyncToObject(Gemini2Response_LX200):
 @dataclass
 class G2Cmd_SyncToObject(Gemini2Command_LX200):
     response: G2Rsp_SyncToObject = field(default_factory=G2Rsp_SyncToObject, init=False)
-
-    def lx200_str(self):
-        return 'CM'
+    lx200_cmd = 'CM'
 
 
 # ...
@@ -891,10 +874,7 @@ class G2Cmd_SetObjectName(Gemini2Command_LX200):
             raise G2CommandParameterValueError('name cannot be empty')
         if '#' in name:
             raise G2CommandParameterValueError('name cannot contain \'#\' characters')
-        self._name = name
-
-    def lx200_str(self):
-        return f'ON{self._name:s}'
+        self.lx200_cmd = f'ON{name}'
 
 
 # ...
@@ -923,19 +903,15 @@ class G2Rsp_GetPrecision(Gemini2Response_LX200_FixedLength):
 @dataclass
 class G2Cmd_GetPrecision(Gemini2Command_LX200):
     response: G2Rsp_GetPrecision = field(default_factory=G2Rsp_GetPrecision, init=False)
-
-    def lx200_str(self):
-        return 'P'
+    lx200_cmd = 'P'
 
 
 class G2Cmd_TogglePrecision(Gemini2Command_LX200):
-    def lx200_str(self):
-        return 'U'
+    lx200_cmd = 'U'
 
 
 class G2Cmd_SetDblPrecision(Gemini2Command_LX200):
-    def lx200_str(self):
-        return 'u'
+    lx200_cmd = 'u'
 
 
 ### Quit Motion Commands
@@ -966,11 +942,9 @@ class G2Cmd_SetObjectRA(Gemini2Command_LX200):
     def __init__(self, ra: float):
         if ra < 0.0 or ra >= 360.0:
             raise G2CommandParameterValueError('ra must be >= 0.0 and < 360.0')
-        _, self._hour, self._min, self._sec = ang_to_hourminsec(ra)
+        _, hour, min, sec = ang_to_hourminsec(ra)
+        self.lx200_cmd = f'Sr{hour:02d}:{min:02d}:{sec:02d}'
         self.response = G2Rsp_SetObjectRA()
-
-    def lx200_str(self):
-        return f'Sr{self._hour:02d}:{self._min:02d}:{self._sec:02d}'
 
 
 class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
@@ -990,12 +964,10 @@ class G2Cmd_SetObjectDec(Gemini2Command_LX200):
     def __init__(self, dec: float):
         if dec < -90.0 or dec > 90.0:
             raise G2CommandParameterValueError('dec must be >= -90.0 and <= 90.0')
-        sign, self._deg, self._min, self._sec = ang_to_degminsec(dec)
-        self._signchar = '+' if sign >= 0 else '-'
+        sign, deg, min, sec = ang_to_degminsec(dec)
+        signchar = '+' if sign >= 0 else '-'
+        self.lx200_cmd = f'Sd{signchar}{deg:02d}:{min:02d}:{sec:02d}'
         self.response = G2Rsp_SetObjectDec()
-
-    def lx200_str(self):
-        return f'Sd{self._signchar}{self._deg:02d}:{self._min:02d}:{self._sec:02d}'
 
 
 class G2Rsp_SetSiteLongitude(Gemini2Response_LX200_FixedLengthOrZero):
@@ -1014,14 +986,12 @@ class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
     def __init__(self, lon: float):
         if lon <= -360.0 or lon >= 360.0:
             raise G2CommandParameterValueError('lon must be > -360.0 and < 360.0')
-        sign, self._deg, self._min = ang_to_degmin(lon)
+        sign, deg, min = ang_to_degmin(lon)
         # everyone else in the world uses positive to mean eastern longitudes; but not
         # LX200!
-        self._signchar = '-' if sign >= 0 else '+'
+        signchar = '-' if sign >= 0 else '+'
+        self.lx200_cmd = f'Sg{signchar}{deg:03d}*{min:02d}'
         self.response = G2Rsp_SetSiteLongitude()
-
-    def lx200_str(self):
-        return f'Sg{self._signchar:s}{self._deg:03d}*{self._min:02d}'
 
 
 class G2Rsp_SetSiteLatitude(Gemini2Response_LX200_FixedLengthOrZero):
@@ -1040,12 +1010,10 @@ class G2Cmd_SetSiteLatitude(Gemini2Command_LX200):
     def __init__(self, lat: float):
         if lat < -90.0 or lat > 90.0:
             raise G2CommandParameterValueError('lat must be >= -90.0 and <= 90.0')
-        sign, self._deg, self._min = ang_to_degmin(lat)
-        self._signchar = '+' if sign >= 0.0 else '-'
+        sign, deg, min = ang_to_degmin(lat)
+        signchar = '+' if sign >= 0.0 else '-'
+        self.lx200_cmd = f'St{signchar}{deg:02d}*{min:02d}'
         self.response = G2Rsp_SetSiteLatitude()
-
-    def lx200_str(self):
-        return f'St{self._signchar:s}{self._deg:02d}*{self._min:02d}'
 
 
 # ...
@@ -1064,10 +1032,7 @@ class G2Cmd_SetStoredSite(Gemini2Command_LX200):
         """
         if site < 0 or site > 4:
             raise G2CommandParameterValueError('site must be >= 0 and <= 4')
-        self._site = site
-
-    def lx200_str(self):
-        return f'W{self._site:d}'
+        self.lx200_cmd = f'W{site:d}'
 
 
 class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
@@ -1084,13 +1049,10 @@ class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
 class G2Cmd_GetStoredSite(Gemini2Command_LX200):
     """Note that the official Gemini 2 serial command documentation is wrong: the range
     for sites is 0-4 inclusive, not 0-3 inclusive."""
-
     response: G2Rsp_GetStoredSite = field(
         default_factory=G2Rsp_GetStoredSite, init=False
     )
-
-    def lx200_str(self):
-        return 'W?'
+    lx200_cmd = 'W?'
 
 
 # ...
