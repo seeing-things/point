@@ -335,43 +335,29 @@ class Gemini2Command_LX200(Gemini2Command):
 
 
 class Gemini2Command_Native(Gemini2Command):
-    """
+    """Abstract base class for all native Gemini 2 commands.
+
+    Abstract because child classes must assign values to the attributes listed below.
+
     Attributes:
         native_prefix: A single character prefix, '<' for "get" commands and '>' for
             "set" commands.
         native_id: The native command ID.
+        native_params: Set of parameters to be sent along with the command.
     """
     native_prefix: str
     native_id: int
+    native_params: tuple[str, ...] = ()
 
     def encode(self) -> str:
-        params_str = self._make_params_str(self.native_params())
+        params_str = self._make_params_str(self.native_params)
         cmd_str = f'{self.native_prefix}{self.native_id}:{params_str}'
         return f'{cmd_str:s}{chr(compute_native_checksum(cmd_str)):s}#'
 
-    def native_params(self):
-        """Get native command parameters.
-
-        Overridden by specific command child classes that have parameters.
-
-        Returns:
-            None if no parameters are to be sent along with the command or a parameter
-            or list of parameters to be sent along with the command.
-        """
-        return None
-
-    # TODO: Make this less complicated by expecting `params` to always be an
-    # iterable of strings, even if there are zero or one parameters.
-    def _make_params_str(self, params) -> str:
-        if params is None:
-            return ''
-        elif isinstance(params, Iterable) and (not isinstance(params, str)):
-            for param in params:
-                self._check_validity(str(param))
-            return ':'.join(params)
-        else:
-            self._check_validity(str(params))
-            return str(params)
+    def _make_params_str(self, params: tuple[str, ...]) -> str:
+        for param in params:
+            self._check_validity(param)
+        return ':'.join(params)
 
     def _check_validity(self, param_str: str) -> None:
         # TODO: do a more rigorous valid-character-range check here
@@ -1065,7 +1051,7 @@ class G2Cmd_GetStoredSite(Gemini2Command_LX200):
 #        if not isinstance(val, int):
 #            raise G2CommandParameterTypeError('int')
 #        self._val = val
-##    def native_params(self): return '{:d}'.format(self._val)
+#        self.native_params = (f'{val:d}',)
 #    def response(self):      return None # TODO!
 
 
@@ -1075,10 +1061,7 @@ class G2Cmd_PECBootPlayback_Set(Gemini2Command_Native_Set):
     def __init__(self, enable: bool):
         if not isinstance(enable, bool):
             raise G2CommandParameterTypeError('bool')
-        self._enable = enable
-
-    def native_params(self):
-        return '1' if self._enable else '0'
+        self.native_params = ('1',) if enable else ('0',)
 
 
 class G2Rsp_PECBootPlayback_Get(Gemini2Response_Native):
@@ -1103,10 +1086,7 @@ class G2Cmd_PECStatus_Set(Gemini2Command_Native_Set):
     def __init__(self, status: G2PECStatus):
         if not isinstance(status, G2PECStatus):
             raise G2CommandParameterTypeError('G2PECStatus')
-        self._status = status
-
-    def native_params(self):
-        return str(self._status.value)
+        self.native_params = (str(status.value),)
 
 
 class G2Rsp_PECStatus_Get(Gemini2Response_Native):
@@ -1140,10 +1120,7 @@ class G2Cmd_NTPServerAddr_Set(Gemini2Command_Native_Set):
     def __init__(self, addr: ipaddress.IPv4Address):
         if not isinstance(addr, ipaddress.IPv4Address):
             raise G2CommandParameterTypeError('IPv4Address')
-        self._addr = addr
-
-    def native_params(self):
-        return str(self._addr)
+        self.native_params = (str(addr),)
 
 
 class G2Rsp_NTPServerAddr_Get(Gemini2Response_Native):
@@ -1173,20 +1150,11 @@ class G2CmdBase_Divisor_Set(Gemini2Command_Native_Set):
         if not isinstance(div, int):
             raise G2CommandParameterTypeError('int')
         # clamp divisor into the allowable range
-        if div < self._div_min():
-            div = self._div_min()
-        if div > self._div_max():
-            div = self._div_max()
-        self._div = div
-
-    def native_params(self):
-        return self._div
-
-    def _div_min(self):
-        return SINT32_MIN
-
-    def _div_max(self):
-        return SINT32_MAX
+        if div < SINT32_MIN:
+            div = SINT32_MIN
+        if div > SINT32_MAX:
+            div = SINT32_MAX
+        self.native_params = (str(div),)
 
 
 class G2Cmd_RA_Divisor_Set(G2CmdBase_Divisor_Set):
@@ -1201,10 +1169,7 @@ class G2CmdBase_StartStop_Set(Gemini2Command_Native_Set):
     def __init__(self, val: G2Stopped):
         if not isinstance(val, G2Stopped):
             raise G2CommandParameterTypeError('G2Stopped')
-        self._val = val
-
-    def native_params(self):
-        return f'{self._val.value:b}'
+        self.native_params = (f'{val.value:b}',)
 
 
 class G2Cmd_RA_StartStop_Set(G2CmdBase_StartStop_Set):
