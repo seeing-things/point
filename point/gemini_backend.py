@@ -72,8 +72,8 @@ class Gemini2BackendSerial(Gemini2Backend):
         # this way, we can actually discern between 0-bytes-returned and haven't-
         # blocked-long-enough.
         # NOTE: we only support the fixed-length decoder for now, to keep things simple
-        if resp.decoder().zero_len_hack():
-            assert isinstance(resp.decoder(), Gemini2Response.FixedLengthDecoder)
+        if resp.zero_len_hack:
+            assert resp.type == Gemini2Response.ResponseType.FIXED_LENGTH
             self._serial.write(b':CE\xff#')
 
         buf_resp = self._wait_for_response(resp)
@@ -88,50 +88,44 @@ class Gemini2BackendSerial(Gemini2Backend):
     def _wait_for_response(self, resp: Gemini2Response) -> str:
         # TODO: This seems like rather tight coupling with the Gemini2Response class.
         # There must be a better way!
-        if isinstance(resp.decoder(), Gemini2Response.FixedLengthDecoder):
-            return self._wait_for_response_fixed_length(resp.decoder())
-        elif isinstance(resp.decoder(), Gemini2Response.HashTerminatedDecoder):
-            return self._wait_for_response_hash_terminated(resp.decoder())
-        elif isinstance(resp.decoder(), Gemini2Response.SemicolonDelimitedDecoder):
-            return self._wait_for_response_semicolon_delimited(resp.decoder())
+        if resp.type == Gemini2Response.ResponseType.FIXED_LENGTH:
+            return self._wait_for_response_fixed_length(resp)
+        elif resp.type == Gemini2Response.ResponseType.HASH_TERMINATED:
+            return self._wait_for_response_hash_terminated(resp)
+        elif resp.type == Gemini2Response.ResponseType.SEMICOLON_DELIMITED:
+            return self._wait_for_response_semicolon_delimited(resp)
         else:
             assert False
 
-    def _wait_for_response_fixed_length(
-        self, decoder: Gemini2Response.FixedLengthDecoder
-    ) -> str:
-        if decoder.zero_len_hack():
+    def _wait_for_response_fixed_length(self, response: Gemini2Response) -> str:
+        if response.zero_len_hack:
             buf_resp = self._get_chars(2)
             if buf_resp == '\xff#':
                 return ''  # zero-length response confirmed
-            buf_resp += self._get_chars(decoder.fixed_len())
+            buf_resp += self._get_chars(response.length_expected)
             if buf_resp[-2:] != '\xff#':
                 raise G2BackendResponseError(
                     'did not receive echo sequence for possibly-zero-length response'
                 )
             buf_resp = buf_resp[:-2]
         else:
-            buf_resp = self._get_chars(decoder.fixed_len())
+            buf_resp = self._get_chars(response.length_expected)
         if '#' in buf_resp:
             raise G2BackendResponseError(
                 'received \'#\' terminator as part of a fixed-length response'
             )
         return buf_resp
 
-    def _wait_for_response_hash_terminated(
-        self, decoder: Gemini2Response.HashTerminatedDecoder
-    ) -> str:
+    def _wait_for_response_hash_terminated(self, response: Gemini2Response) -> str:
         buf_resp = ''
         while not (len(buf_resp) >= 1 and buf_resp[-1] == '#'):
             buf_resp += self._get_char()
         return buf_resp
 
-    def _wait_for_response_semicolon_delimited(
-        self, decoder: Gemini2Response.SemicolonDelimitedDecoder
-    ) -> str:
+    def _wait_for_response_semicolon_delimited(self, response: Gemini2Response) -> str:
         buf_resp = ''
         field_count = 0
-        while field_count < decoder.num_fields():
+        while field_count < response.num_fields_expected:
             buf_resp += self._get_char()
             if buf_resp[-1] == ';':
                 field_count += 1

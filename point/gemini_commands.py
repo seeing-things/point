@@ -9,6 +9,7 @@ from enum import Enum, Flag, IntEnum
 from collections.abc import Iterable
 from typing import Any
 from point.gemini_exceptions import (
+    G2ResponseException,
     G2ResponseIntegerParseError,
     G2ResponseParseError,
     G2ResponseIntegerBoundsViolation,
@@ -398,90 +399,30 @@ class Gemini2Command_Native_Set(Gemini2Command_Native):
 
 
 class Gemini2Response(ABC):
+    """Decodes, processes, and stores the response from a Gemini command.
 
-    class Decoder(ABC):
-        def __init__(
-            self,
-            zero_len_hack: bool = False,
-        ):
-            self._zero_len_hack = zero_len_hack
+    Attributes:
+        type: Type of response. This determines how the response is interpreted and
+            informs the backend how to determine when it has received the full response.
+        decoded: True after `decode()` has been called, False until then.
+        zero_len_hack: Whether to process possibly-zero-length responses. This may only
+            be True if the `type` is FIXED_LENGTH.
+        length_expected: The expected number of characters in the response. Only
+            relevant when the `type` is FIXED_LENGTH.
+        num_fields_expected: The number of fields expected in the response. Only
+            relevant when the `type` is SEMICOLON_DELIMITED.
+    """
 
-        # whether we want to be able to process possibly-zero-length responses
-        # (this requires a bunch of extra hack garbage in the serial backend)
-        def zero_len_hack(self) -> bool:
-            return self._zero_len_hack
+    class ResponseType(enum.Enum):
+        FIXED_LENGTH = enum.auto()
+        HASH_TERMINATED = enum.auto()
+        SEMICOLON_DELIMITED = enum.auto()
 
-        @abstractmethod
-        def decode(self, chars: str) -> tuple[str | list[str], int]:
-            """Decode a command response string.
-
-            Args:
-                chars: The characters of the command response.
-
-            Returns:
-                Tuple: ([decoded_str OR list-of-decoded_strs], num_chars_processed)
-            """
-
-    class FixedLengthDecoder(Decoder):
-        def __init__(self, fixed_len: int, zero_len_hack: bool = False):
-            super().__init__(zero_len_hack)
-            assert fixed_len >= 0
-            self._fixed_len = fixed_len
-
-        def fixed_len(self) -> int:
-            return self._fixed_len
-
-        def decode(self, chars: str) -> tuple[str, int]:
-            idx = self.fixed_len()
-            if len(chars) < idx:
-                raise G2ResponseTooShortError(len(chars), idx)
-            return (chars[:idx], idx)
-
-    class HashTerminatedDecoder(Decoder):
-
-        def decode(self, chars: str) -> tuple[str, int]:
-            idx = chars.find('#')
-            if idx == -1:
-                raise G2ResponseMissingTerminatorError(len(chars))
-            return (chars[:idx], idx + 1)
-
-    # SERIOUS ISSUE: the 'revisions' (native #97) field contains chars in the range of
-    # 0x30 ~ 0x7E, inclusive; this happens to include the semicolon character. so we end
-    # up spuriously interpreting revision chars as field delimiters in those cases!
-    # TEMPORARY WORKAROUND:
-    # - SemicolonDelimitedDecoder.decode:
-    #   - remove assertion for number of fields
-    #   - replace total_len calculation with fake calculation
-    # - G2Rsp_MacroENQ.interpret:
-    #   - remove parsing of "later" fields, since we don't CURRENTLY need them
-    # TODO: report this to Rene!
-    class SemicolonDelimitedDecoder(Decoder):
-        def __init__(self, num_fields: int):
-            super().__init__()
-            assert num_fields >= 0
-            self._num_fields = num_fields
-
-        def num_fields(self) -> int:
-            return self._num_fields
-
-        def decode(self, chars: str) -> tuple[list[str], int]:
-            fields = chars.split(';', self._num_fields)
-            if len(fields) <= self._num_fields:
-                raise G2ResponseTooFewDelimitersError(
-                    len(chars), len(fields), self._num_fields
-                )
-            #            assert len(fields) == self._num_fields + 1
-            fields = fields[:-1]
-            #            total_len = (len(fields) + sum(len(field) for field in fields))
-            total_len = len(chars)  # !!! REMOVE ME !!!
-            return (fields, total_len)
-
-    def __init__(self):
-        self._decoded = False
-
-    @abstractmethod
-    def decoder(self) -> Decoder:
-        """Get Decoder instance."""
+    type: ResponseType = ResponseType.HASH_TERMINATED
+    decoded: bool = False
+    zero_len_hack: bool = False
+    length_expected: int = 0
+    num_fields_expected: int = 0
 
     def decode(self, chars: str) -> int:
         """Decode a command response.
@@ -494,9 +435,47 @@ class Gemini2Response(ABC):
             Integer representing how many characters from the input were decoded for
             this response.
         """
-        assert not self._decoded
-        self._decoded = True
-        (resp_data, num_chars_processed) = self.decoder().decode(chars)
+        assert not self.decoded
+        self.decoded = True
+
+        if self.type == self.ResponseType.FIXED_LENGTH:
+            idx = self.length_expected
+            if len(chars) < idx:
+                raise G2ResponseTooShortError(len(chars), idx)
+            resp_data = chars[:idx]
+            num_chars_processed = idx
+        elif self.type == self.ResponseType.HASH_TERMINATED:
+            idx = chars.find('#')
+            if idx == -1:
+                raise G2ResponseMissingTerminatorError(len(chars))
+            resp_data = chars[:idx]
+            num_chars_processed = idx + 1
+        elif self.type == self.ResponseType.SEMICOLON_DELIMITED:
+            # SERIOUS ISSUE: the 'revisions' (native #97) field contains chars in the
+            # range of 0x30 ~ 0x7E, inclusive; this happens to include the semicolon
+            # character. so we end up spuriously interpreting revision chars as field
+            # delimiters in those cases!
+            # TEMPORARY WORKAROUND:
+            # - SemicolonDelimitedDecoder.decode:
+            #   - remove assertion for number of fields
+            #   - replace total_len calculation with fake calculation
+            # - G2Rsp_MacroENQ.interpret:
+            #   - remove parsing of "later" fields, since we don't CURRENTLY need them
+            # TODO: report this to Rene!
+            fields = chars.split(';', self.num_fields_expected)
+            if len(fields) <= self.num_fields_expected:
+                raise G2ResponseTooFewDelimitersError(
+                    len(chars), len(fields), self.num_fields_expected
+                )
+            # assert len(fields) == self.num_fields + 1
+            fields = fields[:-1]
+            # total_len = (len(fields) + sum(len(field) for field in fields))
+            total_len = len(chars)  # !!! REMOVE ME !!!
+            resp_data = fields
+            num_chars_processed = total_len
+        else:
+            raise G2ResponseException(f'Unsupported response type {self.type}')
+
         self._resp_data = self.post_decode(resp_data)
         self.interpret()
         return num_chars_processed
@@ -511,7 +490,7 @@ class Gemini2Response(ABC):
 
     def get_raw(self) -> str | list[str]:
         """Raw response string (or list-of-strings, in the semicolon-delimited case)."""
-        assert self._decoded
+        assert self.decoded
         return self._resp_data
 
     def get(self) -> Any:
@@ -523,53 +502,40 @@ class Gemini2Response(ABC):
 
 
 class Gemini2Response_ACK(Gemini2Response):
-    def decoder(self):
-        return self.HashTerminatedDecoder()
+    type = Gemini2Response.ResponseType.HASH_TERMINATED
 
 
 # --------------------------------------------------------------------------------------
 
 
 class Gemini2Response_Macro(Gemini2Response):
-    def decoder(self):
-        return self.SemicolonDelimitedDecoder(self.field_count())
-
-    @abstractmethod
-    def field_count(self) -> int:
-        """Number of semicolon-separated fields expected from this macro response."""
+    type = Gemini2Response.ResponseType.SEMICOLON_DELIMITED
 
 
 # --------------------------------------------------------------------------------------
 
 
 class Gemini2Response_LX200(Gemini2Response):
-    def decoder(self):
-        return self.HashTerminatedDecoder()
+    type = Gemini2Response.ResponseType.HASH_TERMINATED
 
 
 # --------------------------------------------------------------------------------------
 
 
 class Gemini2Response_LX200_FixedLength(Gemini2Response_LX200):
-    def decoder(self):
-        return self.FixedLengthDecoder(self.fixed_len())
-
-    @abstractmethod
-    def fixed_len(self) -> int:
-        """Number of characters expected in response."""
+    type = Gemini2Response.ResponseType.FIXED_LENGTH
 
 
 class Gemini2Response_LX200_FixedLengthOrZero(Gemini2Response_LX200_FixedLength):
-    def decoder(self):
-        return self.FixedLengthDecoder(self.fixed_len(), True)
+    type = Gemini2Response.ResponseType.FIXED_LENGTH
+    zero_len_hack = True
 
 
 # --------------------------------------------------------------------------------------
 
 
 class Gemini2Response_Native(Gemini2Response):
-    def decoder(self):
-        return self.HashTerminatedDecoder()
+    type = Gemini2Response.ResponseType.HASH_TERMINATED
 
     def post_decode(self, chars: str) -> str:
         if len(chars) < 1:
@@ -768,8 +734,7 @@ class G2Cmd_SelectStartupMode(Gemini2Command_LX200):
 
 
 class G2Rsp_MacroENQ(Gemini2Response_Macro):
-    def field_count(self):
-        return 21
+    num_fields_expected = 21
 
     def interpret(self) -> None:
         # TODO: implement some range checking on most of the numerical fields here
@@ -947,8 +912,7 @@ class G2Cmd_SetObjectName(Gemini2Command_LX200):
 
 
 class G2Rsp_GetPrecision(Gemini2Response_LX200_FixedLength):
-    def fixed_len(self):
-        return 14
+    length_expected = 14
 
     def interpret(self) -> None:
         self._precision = G2Precision(
@@ -989,8 +953,7 @@ class G2Cmd_SetDblPrecision(Gemini2Command_LX200):
 
 ### Set Commands
 class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
-    def fixed_len(self):
-        return 1
+    length_expected = 1
 
     def interpret(self) -> None:
         validity = G2Valid(
@@ -1014,8 +977,7 @@ class G2Cmd_SetObjectRA(Gemini2Command_LX200):
 
 
 class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
-    def fixed_len(self):
-        return 1
+    length_expected = 1
 
     def interpret(self):
         # Raises ValueError if the response field value isn't in the enum.
@@ -1040,8 +1002,7 @@ class G2Cmd_SetObjectDec(Gemini2Command_LX200):
 
 
 class G2Rsp_SetSiteLongitude(Gemini2Response_LX200_FixedLengthOrZero):
-    def fixed_len(self):
-        return 1
+    length_expected = 1
 
     def interpret(self):
         if len(self.get_raw()) == 0:
@@ -1067,8 +1028,7 @@ class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
 
 
 class G2Rsp_SetSiteLatitude(Gemini2Response_LX200_FixedLengthOrZero):
-    def fixed_len(self):
-        return 1
+    length_expected = 1
 
     def interpret(self):
         if len(self.get_raw()) == 0:
@@ -1114,8 +1074,7 @@ class G2Cmd_SetStoredSite(Gemini2Command_LX200):
 
 
 class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
-    def fixed_len(self):
-        return 1
+    length_expected = 1
 
     def interpret(self) -> None:
         self._site = parse_int_bounds(self.get_raw(), 0, 4)
