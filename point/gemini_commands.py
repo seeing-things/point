@@ -232,11 +232,26 @@ def compute_native_checksum(cmd_str: str) -> int:
 ########################################################################################
 
 
-class Gemini2Command(ABC):
+class Backend(enum.Flag):
+    """Used to indicate which backends are supported by commands."""
 
-    # Response from the command. Individual commands may set this to subclasses of
-    # Gemini2Response. None means no response is expected.
+    SERIAL = enum.auto()
+    UDP = enum.auto()
+
+
+class Gemini2Command(ABC):
+    """
+    Attributes:
+        response: Response from the command. Individual commands may set this to
+            subclasses of Gemini2Response. None means no response is expected.
+        supported_backends: Indicates which backends this command supports. Most
+            commands support both backends but the ENQ macro command is only supported
+            via UDP.
+    """
+
+    # Individual commands may override these default values.
     response: Gemini2Response | None = None
+    supported_backends: Backend = Backend.SERIAL | Backend.UDP
 
     @abstractmethod
     def encode(self) -> str:
@@ -252,22 +267,6 @@ class Gemini2Command(ABC):
             String containing fully encoded raw command with prefix, postfix, checksum,
             etc.
         """
-
-    def valid_for_serial(self) -> bool:
-        """True if this command is valid on the serial backend.
-
-        Specific commands can override this to return `False` if the particular command
-        is not valid for the given backend type.
-        """
-        return True
-
-    def valid_for_udp(self) -> bool:
-        """True if this command is valid on the UDP backend.
-
-        Specific commands can override this to return `False` if the particular command
-        is not valid for the given backend type.
-        """
-        return True
 
     def _check_bad_chars(self, string: str, bad_chars: Iterable[str]) -> None:
         """Check for bad characters in the command string.
@@ -799,12 +798,10 @@ class G2Rsp_MacroENQ(Gemini2Response_Macro):
 @dataclass
 class G2Cmd_MacroENQ(Gemini2Command_Macro):
     response: G2Rsp_MacroENQ = field(default_factory=G2Rsp_MacroENQ, init=False)
+    supported_backends = Backend.UDP  # Not supported via serial.
 
     def cmd_str(self):
         return '\x05'
-
-    def valid_for_serial(self):
-        return False  # only valid on UDP backend
 
 
 ### Synchronization Commands

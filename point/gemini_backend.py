@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from point.gemini_commands import Gemini2Command, Gemini2Response
+from point.gemini_commands import Backend, Gemini2Command, Gemini2Response
 import serial
 import socket
 import struct
@@ -52,7 +52,7 @@ class Gemini2BackendSerial(Gemini2Backend):
         self._serial.close()
 
     def execute_one_command(self, cmd: Gemini2Command) -> None:
-        if not cmd.valid_for_serial():
+        if Backend.SERIAL not in cmd.supported_backends:
             raise G2BackendCommandNotSupportedError(
                 f'command {cmd.__class__.__name__} not supported on the serial backend'
             )
@@ -216,7 +216,7 @@ class Gemini2BackendUDP(Gemini2Backend):
             self._command_lock.release()
 
     def _execute_one_command(self, cmd: Gemini2Command) -> None:
-        if not cmd.valid_for_udp():
+        if Backend.UDP not in cmd.supported_backends:
             raise G2BackendCommandNotSupportedError(
                 'command {:s} is not supported on the UDP backend'.format(
                     cmd.__class__.__name__
