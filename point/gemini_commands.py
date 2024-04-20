@@ -294,14 +294,6 @@ class Gemini2Command(ABC):
 # ======================================================================================
 
 
-class Gemini2Command_ACK(Gemini2Command):
-    def encode(self) -> str:
-        return '\x06'
-
-
-# --------------------------------------------------------------------------------------
-
-
 class Gemini2Command_Macro(Gemini2Command):
     def encode(self) -> str:
         return self.cmd_str()
@@ -476,13 +468,6 @@ class Gemini2Response(ABC):
 
 
 # ======================================================================================
-
-
-class Gemini2Response_ACK(Gemini2Response):
-    type = Gemini2Response.ResponseType.HASH_TERMINATED
-
-
-# --------------------------------------------------------------------------------------
 
 
 class Gemini2Response_Macro(Gemini2Response):
@@ -682,7 +667,9 @@ UINT32_MAX = (1 << 32) - 1
 ### Special Commands
 
 
-class G2Rsp_StartupCheck(Gemini2Response_ACK):
+class G2Rsp_StartupCheck(Gemini2Response):
+    type = Gemini2Response.ResponseType.HASH_TERMINATED
+
     def interpret(self) -> None:
         self._status = G2StartupStatus(
             self.get_raw()
@@ -692,9 +679,14 @@ class G2Rsp_StartupCheck(Gemini2Response_ACK):
         return self._status
 
 
+# This command doesn't follow the conventions of all the other LX200 or native commands.
+# It's a special snowflake. The command is a non-printable, single-byte value.
 @dataclass
-class G2Cmd_StartupCheck(Gemini2Command_ACK):
+class G2Cmd_StartupCheck(Gemini2Command):
     response: G2Rsp_StartupCheck = field(default_factory=G2Rsp_StartupCheck, init=False)
+
+    def encode(self) -> str:
+        return '\x06'
 
 
 class G2Cmd_SelectStartupMode(Gemini2Command_LX200):
