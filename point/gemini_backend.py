@@ -54,7 +54,7 @@ class Gemini2BackendSerial(Gemini2Backend):
     def execute_one_command(self, cmd: Gemini2Command) -> None:
         if Backend.SERIAL not in cmd.supported_backends:
             raise G2BackendCommandNotSupportedError(
-                f'command {cmd.__class__.__name__} not supported on the serial backend'
+                f'Command {cmd.__class__.__name__} not supported on the serial backend.'
             )
 
         buf_cmd = cmd.encode()
@@ -81,8 +81,8 @@ class Gemini2BackendSerial(Gemini2Backend):
         len_consumed = resp.decode(buf_resp)
         if len_consumed != len(buf_resp):
             raise G2BackendResponseError(
-                'response was decoded, but only {:d} of the {:d} available characters'
-                ' were consumed'.format(len_consumed, len(buf_resp))
+                f'Response was decoded, but only {len_consumed} of the {len(buf_resp)} '
+                'available characters were consumed.'
             )
 
     def _wait_for_response(self, resp: Gemini2Response) -> str:
@@ -105,14 +105,14 @@ class Gemini2BackendSerial(Gemini2Backend):
             buf_resp += self._get_chars(response.length_expected)
             if buf_resp[-2:] != '\xff#':
                 raise G2BackendResponseError(
-                    'did not receive echo sequence for possibly-zero-length response'
+                    'Did not receive echo sequence for possibly-zero-length response.'
                 )
             buf_resp = buf_resp[:-2]
         else:
             buf_resp = self._get_chars(response.length_expected)
         if '#' in buf_resp:
             raise G2BackendResponseError(
-                'received \'#\' terminator as part of a fixed-length response'
+                "Received '#' terminator as part of a fixed-length response."
             )
         return buf_resp
 
@@ -131,7 +131,7 @@ class Gemini2BackendSerial(Gemini2Backend):
                 field_count += 1
         if '#' in buf_resp:
             raise G2BackendResponseError(
-                'received \'#\' terminator as part of a semicolon-delimited response'
+                "Received '#' terminator as part of a semicolon-delimited response."
             )
         return buf_resp
 
@@ -218,17 +218,14 @@ class Gemini2BackendUDP(Gemini2Backend):
     def _execute_one_command(self, cmd: Gemini2Command) -> None:
         if Backend.UDP not in cmd.supported_backends:
             raise G2BackendCommandNotSupportedError(
-                'command {:s} is not supported on the UDP backend'.format(
-                    cmd.__class__.__name__
-                )
+                f'Command {cmd.__class__.__name__} is not supported on the UDP backend.'
             )
 
         cmd_str = cmd.encode()
         if len(cmd_str) > self.UDP_CMD_STR_LEN_MAX:
             raise G2BackendCommandError(
-                'command string is too long: {:d} > {:d}'.format(
-                    len(cmd_str), self.UDP_CMD_STR_LEN_MAX
-                )
+                f'Command string is too long: {len(cmd_str)} > '
+                f'{self.UDP_CMD_STR_LEN_MAX}.'
             )
 
         # If we get a response that references an earlier seqnum, it's from an earlier
@@ -269,7 +266,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                 while True:
                     if retry_num >= self._retry_limit:
                         raise G2BackendReadTimeoutError(
-                            f'gave up after {retry_num:d} NACK retry attempts'
+                            f'Gave up after {retry_num:d} NACK retry attempts.'
                         )
                     retry_num += 1
                     self._seqnum += 1
@@ -289,14 +286,13 @@ class Gemini2BackendUDP(Gemini2Backend):
 
             if len(buf_resp) > self.UDP_RESP_DGRAM_LEN_MAX:
                 raise G2BackendResponseError(
-                    'received UDP response datagram larger than max length: {:d} > {:d}'.format(
-                        len(buf_resp), self.UDP_RESP_DGRAM_LEN_MAX
-                    )
+                    'Received UDP response datagram larger than max length: '
+                    f'{len(buf_resp)} > {self.UDP_RESP_DGRAM_LEN_MAX}.'
                 )
             elif len(buf_resp) < self.UDP_RESP_DGRAM_LEN_MIN:
                 raise G2BackendResponseError(
-                    'received UDP response datagram smaller than min length: {:d} <'
-                    ' {:d}'.format(len(buf_resp), self.UDP_RESP_DGRAM_LEN_MIN)
+                    'Received UDP response datagram smaller than min length: '
+                    f'{len(buf_resp)} < {self.UDP_RESP_DGRAM_LEN_MIN}.'
                 )
 
             (seqnum, last_seqnum) = struct.unpack('!II', buf_resp[0:8])
@@ -308,20 +304,20 @@ class Gemini2BackendUDP(Gemini2Backend):
                     continue
                 elif seqnum < cmd_seqnum or seqnum > self._seqnum:
                     raise G2BackendResponseError(
-                        'mismatched sequence number in UDP response datagram: {:d} !='
-                        ' {:d}'.format(seqnum, self._seqnum)
+                        'Mismatched sequence number in UDP response datagram: '
+                        f'{seqnum} != {self._seqnum}.'
                     )
 
             if did_retry:
                 if last_seqnum == cmd_seqnum:
                     print(
-                        'after {:d} NACK\'s, Gemini indicated that its response'
-                        ' datagram was lost; successfully recovered'.format(retry_num)
+                        f'After {retry_num} NACK\'s, Gemini indicated that its response'
+                        ' datagram was lost; successfully recovered.'
                     )
                 else:
                     print(
-                        'after {:d} NACK\'s, Gemini indicated that our command datagram'
-                        ' was lost; will resend it'.format(retry_num)
+                        f'After {retry_num} NACK\'s, Gemini indicated that our command '
+                        'datagram was lost; will resend it.'
                     )
                     continue
             # else:
@@ -330,9 +326,9 @@ class Gemini2BackendUDP(Gemini2Backend):
             #         # but the docs do say that the field should be zero in normal
             #         # circumstances.
             #         print(
-            #             'received UDP response datagram with nonzero last_seqnum '
-            #             '{:d} in non-NACK situation (current seqnum: {:d})'.format(
-            #                 last_seqnum, self._seqnum))
+            #             'Received UDP response datagram with nonzero last_seqnum '
+            #             f'{last_seqnum} in non-NACK situation (current seqnum: '
+            #             f'{self._seqnum}).'
 
             self._seqnum += 1
 
@@ -341,20 +337,19 @@ class Gemini2BackendUDP(Gemini2Backend):
             num_nulls = buf_resp.count('\x00')
             if num_nulls == 0:
                 raise G2BackendResponseError(
-                    'received UDP response buffer of length {:d} containing no NULL'
-                    ' terminator'.format(len(buf_resp))
+                    f'Received UDP response buffer of length {len(buf_resp)} '
+                    'containing no NULL terminator.'
                 )
             elif num_nulls > 1:
                 raise G2BackendResponseError(
-                    'received UDP response buffer of length {:d} containing {:d} NULL'
-                    ' characters'.format(len(buf_resp), num_nulls)
+                    f'Received UDP response buffer of length {len(buf_resp)} '
+                    f'containing {num_nulls} NULL characters.'
                 )
             elif buf_resp[-1] != '\x00':
+                null_idx = buf_resp.rfind("\x00")
                 raise G2BackendResponseError(
-                    'received UDP response buffer of length {:d} with single NULL'
-                    ' terminator at non-end index {:d}'.format(
-                        len(buf_resp), buf_resp.rfind('\x00')
-                    )
+                    f'Received UDP response buffer of length {len(buf_resp)} with '
+                    f'single NULL terminator at non-end index {null_idx}.'
                 )
             buf_resp = buf_resp[:-1]
 
@@ -362,22 +357,21 @@ class Gemini2BackendUDP(Gemini2Backend):
             if len(buf_resp) == 1 and buf_resp[0] == '\x06':
                 if resp is not None:
                     raise G2BackendResponseError(
-                        'received ACK (no response), but command {:s} expected to'
-                        ' receive response {:s}'.format(
-                            cmd.__class__.__name__, resp.__class__.__name__
-                        )
+                        'Received ACK (no response), but command '
+                        f'{cmd.__class__.__name__} expected to receive response '
+                        f'{resp.__class__.__name__}.'
                     )
             else:
                 if resp is None:
                     raise G2BackendResponseError(
-                        'received a response of some kind, but command {:s} was'
-                        ' expecting no response'.format(cmd.__class__.__name__)
+                        'Received a response of some kind, but command '
+                        f'{cmd.__class__.__name__} was expecting no response.'
                     )
                 len_consumed = resp.decode(buf_resp)
                 if len_consumed != len(buf_resp):
                     raise G2BackendResponseError(
-                        'response was decoded, but only {:d} of the {:d} available'
-                        ' characters were consumed'.format(len_consumed, len(buf_resp))
+                        f'Response was decoded, but only {len_consumed} of the '
+                        f'{len(buf_resp)} available characters were consumed.'
                     )
 
             self._stats['cmd_exec'] += 1
