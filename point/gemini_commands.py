@@ -698,6 +698,31 @@ class G2Cmd_SelectStartupMode(Gemini2Command_LX200):
 
 ### Macro Commands
 
+@dataclass(frozen=True)
+class G2MacroFields:
+    """Response data from the ENQ macro command."""
+    pra: int
+    pdec: int
+    ra: float
+    dec: float
+    ha: float
+    az: float
+    alt: float
+    vel_max: G2AxisVelocity
+    vel_x: G2AxisVelocity
+    vel_y: G2AxisVelocity
+    ha_pos: G2AxisPosition
+    t_sidereal: float
+    park_state: G2ParkStatus
+    pec_state: G2PECStatus
+    t_wsl: float
+    cmd99_state: G2Status
+    # revisions: list[int]
+    # servo_lag_x: int
+    # servo_lag_y: int
+    # servo_duty_x: int
+    # servo_duty_y: int
+
 
 class G2Rsp_MacroENQ(Gemini2Response_Macro):
     num_fields_expected = 21
@@ -706,59 +731,32 @@ class G2Rsp_MacroENQ(Gemini2Response_Macro):
         # TODO: implement some range checking on most of the numerical fields here
         # (e.g. angle ranges:  [0,180) or [-90,+90] or [0,360)  etc)
         fields = self.get_raw()
-        self._values = {}
-        # raises G2ResponseIntegerParseError on failure
-        # self._values['phys_x'] = parse_int(fields[0])
-        # raises G2ResponseIntegerParseError on failure
-        # self._values['phys_y'] = parse_int(fields[1])
-        # raises G2ResponseIntegerParseError on failure
-        self._values['pra'] = parse_int(fields[0])
-        # raises G2ResponseIntegerParseError on failure
-        self._values['pdec'] = parse_int(fields[1])
-        # raises G2ResponseAngleParseError on failure
-        self._values['ra'] = parse_ang_dbl(fields[2])
-        # raises G2ResponseAngleParseError on failure
-        self._values['dec'] = parse_ang_dbl(fields[3])
-        # raises G2ResponseAngleParseError on failure
-        self._values['ha'] = parse_ang_dbl(fields[4])
-        # raises G2ResponseAngleParseError on failure
-        self._values['az'] = parse_ang_dbl(fields[5])
-        # raises G2ResponseAngleParseError on failure
-        self._values['alt'] = parse_ang_dbl(fields[6])
-        # raises ValueError if the response field value isn't in the enum
-        self._values['vel_max'] = G2AxisVelocity(fields[7])
-        # raises ValueError if the response field value isn't in the enum
-        self._values['vel_x'] = G2AxisVelocity(fields[8])
-        # raises ValueError if the response field value isn't in the enum
-        self._values['vel_y'] = G2AxisVelocity(fields[9])
-        # raises ValueError if the response field value isn't in the enum
-        self._values['ha_pos'] = G2AxisPosition(fields[10])
-        # raises G2ResponseTimeParseError on failure
-        self._values['t_sidereal'] = parse_time_dbl(fields[11])
-        # raises ValueError if the response field value isn't in the enum
-        self._values['park_state'] = G2ParkStatus(int(fields[12]))
-        # raises ValueError if the response field value isn't in the enum
-        self._values['pec_state'] = G2PECStatus(int(fields[13]))
-        # raises G2ResponseTimeParseError on failure
-        self._values['t_wsl'] = parse_time_dbl(fields[14])
-        # raises ValueError if the response field value isn't in the enum
-        self._values['cmd99_state'] = G2Status(int(fields[15]))
-        # raises G2ResponseRevisionsParseError on failure
-        # self._values['revisions'] = parse_revisions(fields[16])
-        # raises G2ResponseIntegerParseError or G2ResponseIntegerBoundsViolation on
-        # failure
-        # self._values['servo_lag_x'] = parse_servo_lag(fields[17])
-        # raises G2ResponseIntegerParseError or G2ResponseIntegerBoundsViolation on
-        # failure
-        # self._values['servo_lag_y'] = parse_servo_lag(fields[18])
-        # raises G2ResponseIntegerParseError or G2ResponseIntegerBoundsViolation on
-        # failure
-        # self._values['servo_duty_x'] = parse_servo_duty(fields[19])
-        # raises G2ResponseIntegerParseError or G2ResponseIntegerBoundsViolation on
-        # failure
-        # self._values['servo_duty_y'] = parse_servo_duty(fields[20])
+        self._values = G2MacroFields(
+            pra=parse_int(fields[0]),
+            pdec=parse_int(fields[1]),
+            ra=parse_ang_dbl(fields[2]),
+            dec=parse_ang_dbl(fields[3]),
+            ha=parse_ang_dbl(fields[4]),
+            az=parse_ang_dbl(fields[5]),
+            alt=parse_ang_dbl(fields[6]),
+            vel_max=G2AxisVelocity(fields[7]),
+            vel_x=G2AxisVelocity(fields[8]),
+            vel_y=G2AxisVelocity(fields[9]),
+            ha_pos=G2AxisPosition(fields[10]),
+            t_sidereal=parse_time_dbl(fields[11]),
+            park_state=G2ParkStatus(int(fields[12])),
+            pec_state=G2PECStatus(int(fields[13])),
+            t_wsl=parse_time_dbl(fields[14]),
+            cmd99_state=G2Status(int(fields[15])),
+            # TODO: Fix parsing of this command so the remaining fields can be enabled.
+            # revisions=parse_revisions(fields[16]),
+            # servo_lag_x=parse_servo_lag(fields[17]),
+            # servo_lag_y=parse_servo_lag(fields[18]),
+            # servo_duty_x=parse_servo_duty(fields[19]),
+            # servo_duty_y=parse_servo_duty(fields[20]),
+        )
 
-    def get(self) -> dict:
+    def get(self) -> G2MacroFields:
         return self._values
 
 

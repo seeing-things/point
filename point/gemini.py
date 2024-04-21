@@ -41,6 +41,7 @@ from point.gemini_commands import (
     G2Cmd_StartupCheck,
     G2Cmd_SyncToObject,
     G2Cmd_TogglePrecision,
+    G2MacroFields,
     G2PECStatus,
     G2Precision,
     G2StartupMode,
@@ -208,7 +209,7 @@ class Gemini2:
 
     ### Macro Commands
 
-    def enq_macro(self) -> dict:
+    def enq_macro(self) -> G2MacroFields:
         return self.exec_cmd(G2Cmd_MacroENQ()).response.get()
 
     ### Synchronization Commands
