@@ -7,6 +7,7 @@ import struct
 import multiprocessing
 from point.gemini_exceptions import (
     G2BackendCommandNotSupportedError,
+    G2BackendFeatureNotSupportedError,
     G2BackendResponseError,
     G2BackendReadTimeoutError,
     G2BackendCommandError,
@@ -93,7 +94,9 @@ class Gemini2BackendSerial(Gemini2Backend):
         elif resp.type == Gemini2Response.ResponseType.HASH_TERMINATED:
             return self._wait_for_response_hash_terminated(resp)
         elif resp.type == Gemini2Response.ResponseType.SEMICOLON_DELIMITED:
-            return self._wait_for_response_semicolon_delimited(resp)
+            raise G2BackendFeatureNotSupportedError(
+                'Semicolon delimited responses are not supported in the serial backend.'
+            )
         else:
             assert False
 
@@ -120,19 +123,6 @@ class Gemini2BackendSerial(Gemini2Backend):
         buf_resp = ''
         while not (len(buf_resp) >= 1 and buf_resp[-1] == '#'):
             buf_resp += self._get_char()
-        return buf_resp
-
-    def _wait_for_response_semicolon_delimited(self, response: Gemini2Response) -> str:
-        buf_resp = ''
-        field_count = 0
-        while field_count < response.num_fields_expected:
-            buf_resp += self._get_char()
-            if buf_resp[-1] == ';':
-                field_count += 1
-        if '#' in buf_resp:
-            raise G2BackendResponseError(
-                "Received '#' terminator as part of a semicolon-delimited response."
-            )
         return buf_resp
 
     def _get_char(self) -> str:

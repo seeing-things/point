@@ -5,7 +5,7 @@ import re
 import ipaddress
 from curses.ascii import isgraph
 import enum
-from enum import Enum, Flag, IntEnum
+from enum import Enum, Flag
 from collections.abc import Iterable
 from typing import Any
 from point.gemini_exceptions import (
@@ -21,7 +21,6 @@ from point.gemini_exceptions import (
     G2ResponseChecksumMismatchError,
     G2ResponseTooShortError,
     G2ResponseMissingTerminatorError,
-    G2ResponseTooFewDelimitersError,
     G2CommandParameterTypeError,
     G2ResponseInterpretationFailure,
     G2CommandParameterValueError,
@@ -41,7 +40,6 @@ _re_ang_high = re.compile(r'^([-+]?)(\d{1,2}):(\d{1,2}):(\d{1,2})$', re.ASCII)
 _re_ang_low = re.compile(r'^([-+]?)(\d{1,3})' + '\xdf' + r'(\d{1,2})$', re.ASCII)
 _re_time_dbl = re.compile(r'^([-+]?)(\d+\.\d{6})$', re.ASCII)
 _re_time_hilo = re.compile(r'^(\d{1,2}):(\d{1,2}):(\d{1,2})$', re.ASCII)
-_re_revisions = re.compile(r'^.{8}$', re.ASCII)
 _re_ipv4addr = re.compile(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$', re.ASCII)
 
 
@@ -128,19 +126,17 @@ def parse_time(string: str, precision: G2Precision) -> float:
         return parse_time_hilo(string)
 
 
-def parse_revisions(string: str) -> list[int]:
-    match = _re_revisions.fullmatch(string)
-    if match is None:
-        raise G2ResponseRevisionsParseError(string)
+def parse_revisions(string: str) -> G2Revisions:
+    """Parse revision characters in the 8-character response to native command 97."""
     vals = []
+    if len(string) != 8:
+        raise G2ResponseRevisionsParseError(string)
     for char in string:
         val = ord(char)
         if val < 0x30 or val > 0x7E:
             raise G2ResponseRevisionsParseError(string)
         vals.append(val - 0x30)
-    if len(vals) != 8:
-        raise G2ResponseRevisionsParseError(string)
-    return vals
+    return G2Revisions(*vals)
 
 
 def parse_ip4vaddr(string: str) -> ipaddress.IPv4Address:
@@ -380,8 +376,6 @@ class Gemini2Response(ABC):
             be True if the `type` is FIXED_LENGTH.
         length_expected: The expected number of characters in the response. Only
             relevant when the `type` is FIXED_LENGTH.
-        num_fields_expected: The number of fields expected in the response. Only
-            relevant when the `type` is SEMICOLON_DELIMITED.
     """
 
     class ResponseType(enum.Enum):
@@ -393,7 +387,6 @@ class Gemini2Response(ABC):
     decoded: bool = False
     zero_len_hack: bool = False
     length_expected: int = 0
-    num_fields_expected: int = 0
 
     def decode(self, chars: str) -> int:
         """Decode a command response.
@@ -422,28 +415,13 @@ class Gemini2Response(ABC):
             resp_data = chars[:idx]
             num_chars_processed = idx + 1
         elif self.type == self.ResponseType.SEMICOLON_DELIMITED:
-            # SERIOUS ISSUE: the 'revisions' (native #97) field contains chars in the
-            # range of 0x30 ~ 0x7E, inclusive; this happens to include the semicolon
-            # character. so we end up spuriously interpreting revision chars as field
-            # delimiters in those cases!
-            # TEMPORARY WORKAROUND:
-            # - SemicolonDelimitedDecoder.decode:
-            #   - remove assertion for number of fields
-            #   - replace total_len calculation with fake calculation
-            # - G2Rsp_MacroENQ.interpret:
-            #   - remove parsing of "later" fields, since we don't CURRENTLY need them
-            # TODO: report this to Rene!
-            fields = chars.split(';', self.num_fields_expected)
-            if len(fields) <= self.num_fields_expected:
-                raise G2ResponseTooFewDelimitersError(
-                    len(chars), len(fields), self.num_fields_expected
-                )
-            # assert len(fields) == self.num_fields + 1
-            fields = fields[:-1]
-            # total_len = (len(fields) + sum(len(field) for field in fields))
-            total_len = len(chars)  # !!! REMOVE ME !!!
-            resp_data = fields
-            num_chars_processed = total_len
+            # Individual commands are responsible for parsing fields out of the raw
+            # response string. This is because presently there is only one command, the
+            # ENQ macro command, that uses a semicolon-delimited response, and the
+            # response to that command has one field that can also contain semicolons.
+            # Command-specific parsing can handle that situation.
+            resp_data = chars
+            num_chars_processed = len(chars)
         else:
             raise G2ResponseException(f'Unsupported response type {self.type}.')
 
@@ -451,7 +429,7 @@ class Gemini2Response(ABC):
         self.interpret()
         return num_chars_processed
 
-    def post_decode(self, chars: str | list[str]) -> str | list[str]:
+    def post_decode(self, chars: str) -> str:
         """Optionally implement to do some additional post-decode-step verification."""
         return chars
 
@@ -459,8 +437,8 @@ class Gemini2Response(ABC):
         """Optionally implement to do cmd-specific interpretation of the response."""
         return None
 
-    def get_raw(self) -> str | list[str]:
-        """Raw response string (or list-of-strings, in the semicolon-delimited case)."""
+    def get_raw(self) -> str:
+        """Raw response string."""
         assert self.decoded
         return self._resp_data
 
@@ -569,7 +547,7 @@ class G2AxisVelocity(Enum):
     UNDEFINED = '?'
 
 
-class G2AxisPosition(Enum):
+class G2AxisSide(Enum):
     """Parameter for MacroENQ field 'ha_pos'."""
 
     LOWER_SIDE = 'W'
@@ -610,28 +588,6 @@ class G2Status(Flag):
     GOTO_OPERATION_ONGOING = 1 << 3
     RA_LIMIT_REACHED = 1 << 4
     ASSUMING_J2000_OBJ_COORDS = 1 << 5
-
-
-class G2Revision(IntEnum):
-    """Indexes for MacroENQ field 'revisions'."""
-
-    SITE = 0
-    DATE_TIME = 1
-    MOUNT_PARAM = 2
-    DISPLAY_CONTENT = 3
-    MODEL_PARAM = 4
-    SPEEDS = 5
-    PARK = 6
-    RESERVED = 7
-
-
-# Parameter for MacroENQ fields 'servo_lag_x' and 'servo_lag_y'.
-G2_SERVO_LAG_MIN = -390
-G2_SERVO_LAG_MAX = 390
-
-
-def parse_servo_lag(string: str) -> int:
-    return parse_int_bounds(string, G2_SERVO_LAG_MIN, G2_SERVO_LAG_MAX)
 
 
 # Parameter for MacroENQ fields 'servo_duty_x' and 'servo_duty_y'.
@@ -702,6 +658,28 @@ class G2Cmd_SelectStartupMode(Gemini2Command_LX200):
 
 
 @dataclass(frozen=True)
+class G2Revisions:
+    """Revisions from native command 97 "State Check" response.
+
+    These are initialized to 0 and increment each time corresponding values in Gemini
+    are updated. They each count up to a max value of 78 before rolling over back to 0.
+    """
+
+    site: int
+    date_time: int
+    mount_param: int
+    display_content: int
+    modelling_parameters: int
+    speeds: int
+    park: int
+    reserved: int
+
+
+# TODO: Document each of these fields, including what ordinary LX200 or native command
+# they correspond to.
+# TODO: Use more descriptive names. Some of these are a bit too terse.
+# TODO: Consider using datetime or similar for the time fields rather than float.
+@dataclass(frozen=True)
 class G2MacroFields:
     """Response data from the ENQ macro command."""
 
@@ -715,49 +693,89 @@ class G2MacroFields:
     vel_max: G2AxisVelocity
     vel_x: G2AxisVelocity
     vel_y: G2AxisVelocity
-    ha_pos: G2AxisPosition
+    ha_pos: G2AxisSide
     t_sidereal: float
     park_state: G2ParkStatus
     pec_state: G2PECStatus
     t_wsl: float
     cmd99_state: G2Status
-    # revisions: list[int]
-    # servo_lag_x: int
-    # servo_lag_y: int
-    # servo_duty_x: int
-    # servo_duty_y: int
+    revisions: G2Revisions
+    servo_lag_x: int
+    servo_lag_y: int
+    servo_duty_x: int
+    servo_duty_y: int
 
 
 class G2Rsp_MacroENQ(Gemini2Response_Macro):
-    num_fields_expected = 21
 
     def interpret(self) -> None:
         # TODO: implement some range checking on most of the numerical fields here
         # (e.g. angle ranges:  [0,180) or [-90,+90] or [0,360)  etc)
-        fields = self.get_raw()
+
+        # The 'revisions' (native #97) field contains chars in the range of 0x30 ~ 0x7E,
+        # inclusive; this happens to include the semicolon character. So if we split the
+        # response string purely using semicolon characters we could end up spuriously
+        # interpreting revision chars as field delimiters! To work around that, we use
+        # additional information about the expected structure of the response to parse
+        # fields out of it via a regular expression.
+        fields = re.fullmatch(
+            pattern=(
+                # Angles and times are always double precision in ENQ macro response.
+                r'(\d+);'  # 101 - RA encoder position
+                r'(\d+);'  # 111 - DEC encoder position
+                r'([-+]?\d{1,3}.\d{6});'  # GR - Right ascension in degrees
+                r'([-+]?\d{1,3}.\d{6});'  # GD - Declination in degrees
+                r'([-+]?\d{1,3}.\d{6});'  # GH - Hour angle in degrees
+                r'([-+]?\d{1,3}.\d{6});'  # GZ - Azimuth in degrees
+                r'([-+]?\d{1,3}.\d{6});'  # GA - Altitude in degrees
+                r'([!NSCTG?]);'  # Gv - Max velocity of both axes
+                r'([!NSCTG?]);'  # GW - Velocity of RA axis
+                r'([!NSCTG?]);'  # Gw - Velogity of DEC axis
+                r'([WE]);'  # Gm - RA axis mount side
+                r'([-+]?\d+.\d{6});'  # GS - Sidereal time (double precision)
+                r'([012]);'  # h? - Park state
+                r'(\d+);'  # 509 - PEC status
+                r'([-+]?\d+.\d{6});'  # 226 - Time to western safety limit
+                r'(\d+);'  # 99 - Status inquiry native command
+                r'([0-~]{8});'  # 97 - State check, which may contain semicolons
+                r'([-+]?\d+);'  # 245 - RA servo lag
+                r'([-+]?\d+);'  # 246 - DEC servo lag
+                r'([-+]?\d+);'  # 247 - RA servo PWM duty cycle
+                r'([-+]?\d+);'  # 248 - DEC servo PWM duty cycle
+                r'([-+]?\d+);'  # Unknown, probably added recently (in Level 6?)
+                r'([-+]?\d+);'  # Unknown, probably added recently (in Level 6?)
+            ),
+            string=self.get_raw(),
+            flags=re.ASCII,
+        )
+
+        if fields is None:
+            raise G2ResponseParseError(
+                f'Could not parse ENQ response "{self.get_raw()}"'
+            )
+
         self._values = G2MacroFields(
-            pra=parse_int(fields[0]),
-            pdec=parse_int(fields[1]),
-            ra=parse_ang_dbl(fields[2]),
-            dec=parse_ang_dbl(fields[3]),
-            ha=parse_ang_dbl(fields[4]),
-            az=parse_ang_dbl(fields[5]),
-            alt=parse_ang_dbl(fields[6]),
-            vel_max=G2AxisVelocity(fields[7]),
-            vel_x=G2AxisVelocity(fields[8]),
-            vel_y=G2AxisVelocity(fields[9]),
-            ha_pos=G2AxisPosition(fields[10]),
-            t_sidereal=parse_time_dbl(fields[11]),
-            park_state=G2ParkStatus(int(fields[12])),
-            pec_state=G2PECStatus(int(fields[13])),
-            t_wsl=parse_time_dbl(fields[14]),
-            cmd99_state=G2Status(int(fields[15])),
-            # TODO: Fix parsing of this command so the remaining fields can be enabled.
-            # revisions=parse_revisions(fields[16]),
-            # servo_lag_x=parse_servo_lag(fields[17]),
-            # servo_lag_y=parse_servo_lag(fields[18]),
-            # servo_duty_x=parse_servo_duty(fields[19]),
-            # servo_duty_y=parse_servo_duty(fields[20]),
+            pra=int(fields[1]),
+            pdec=int(fields[2]),
+            ra=float(fields[3]),
+            dec=float(fields[4]),
+            ha=float(fields[5]),
+            az=float(fields[6]),
+            alt=float(fields[7]),
+            vel_max=G2AxisVelocity(fields[8]),
+            vel_x=G2AxisVelocity(fields[9]),
+            vel_y=G2AxisVelocity(fields[10]),
+            ha_pos=G2AxisSide(fields[11]),
+            t_sidereal=float(fields[12]),
+            park_state=G2ParkStatus(int(fields[13])),
+            pec_state=G2PECStatus(int(fields[14])),
+            t_wsl=float(fields[15]),
+            cmd99_state=G2Status(int(fields[16])),
+            revisions=parse_revisions(fields[17]),
+            servo_lag_x=int(fields[18]),
+            servo_lag_y=int(fields[19]),
+            servo_duty_x=parse_servo_duty(fields[20]),
+            servo_duty_y=parse_servo_duty(fields[21]),
         )
 
     def get(self) -> G2MacroFields:
