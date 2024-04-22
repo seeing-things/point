@@ -376,6 +376,8 @@ class Gemini2Response(ABC):
             be True if the `type` is FIXED_LENGTH.
         length_expected: The expected number of characters in the response. Only
             relevant when the `type` is FIXED_LENGTH.
+        raw_response: The raw response string from Gemini. This attribute won't exist
+            until the backend calls `decode()` with the response string.
     """
 
     class ResponseType(enum.Enum):
@@ -387,6 +389,7 @@ class Gemini2Response(ABC):
     decoded: bool = False
     zero_len_hack: bool = False
     length_expected: int = 0
+    raw_response: str
 
     def decode(self, chars: str) -> int:
         """Decode a command response.
@@ -425,7 +428,7 @@ class Gemini2Response(ABC):
         else:
             raise G2ResponseException(f'Unsupported response type {self.type}.')
 
-        self._resp_data = self.post_decode(resp_data)
+        self.raw_response = self.post_decode(resp_data)
         self.interpret()
         return num_chars_processed
 
@@ -437,14 +440,9 @@ class Gemini2Response(ABC):
         """Optionally implement to do cmd-specific interpretation of the response."""
         return None
 
-    def get_raw(self) -> str:
-        """Raw response string."""
-        assert self.decoded
-        return self._resp_data
-
     def get(self) -> Any:
         """Override this to return interpreted data instead of the raw response."""
-        return self.get_raw()
+        return self.raw_response
 
 
 # ======================================================================================
@@ -630,7 +628,7 @@ class G2Rsp_StartupCheck(Gemini2Response):
 
     def interpret(self) -> None:
         self._status = G2StartupStatus(
-            self.get_raw()
+            self.raw_response
         )  # raises ValueError if the response value isn't in the enum
 
     def get(self) -> G2StartupStatus:
@@ -745,13 +743,13 @@ class G2Rsp_MacroENQ(Gemini2Response_Macro):
                 r'([-+]?\d+);'  # Unknown, probably added recently (in Level 6?)
                 r'([-+]?\d+);'  # Unknown, probably added recently (in Level 6?)
             ),
-            string=self.get_raw(),
+            string=self.raw_response,
             flags=re.ASCII,
         )
 
         if fields is None:
             raise G2ResponseParseError(
-                f'Could not parse ENQ response "{self.get_raw()}"'
+                f'Could not parse ENQ response "{self.raw_response}"'
             )
 
         self._values = G2MacroFields(
@@ -810,7 +808,7 @@ class G2Cmd_Echo(Gemini2Command_LX200):
 
 class G2Rsp_AlignToObject(Gemini2Response_LX200):
     def interpret(self) -> None:
-        if self.get_raw() == 'No object!':
+        if self.raw_response == 'No object!':
             raise G2ResponseInterpretationFailure()
 
 
@@ -824,7 +822,7 @@ class G2Cmd_AlignToObject(Gemini2Command_LX200):
 
 class G2Rsp_SyncToObject(Gemini2Response_LX200):
     def interpret(self) -> None:
-        if self.get_raw() == 'No object!':
+        if self.raw_response == 'No object!':
             raise G2ResponseInterpretationFailure()
 
 
@@ -890,7 +888,7 @@ class G2Rsp_GetPrecision(Gemini2Response_LX200_FixedLength):
 
     def interpret(self) -> None:
         self._precision = G2Precision(
-            self.get_raw()
+            self.raw_response
         )  # raises ValueError if the response value isn't in the enum
 
     def get(self) -> G2Precision:
@@ -927,7 +925,7 @@ class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
 
     def interpret(self) -> None:
         validity = G2Valid(
-            self.get_raw()
+            self.raw_response
         )  # raises ValueError if the response field value isn't in the enum
         if validity != G2Valid.VALID:
             raise G2ResponseInterpretationFailure()
@@ -949,7 +947,7 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
 
     def interpret(self):
         # Raises ValueError if the response field value isn't in the enum.
-        validity = G2Valid(self.get_raw())
+        validity = G2Valid(self.raw_response)
         if validity != G2Valid.VALID:
             raise G2ResponseInterpretationFailure()
         # NOTE: only objects which are currently above the horizon are considered valid
@@ -971,9 +969,9 @@ class G2Rsp_SetSiteLongitude(Gemini2Response_LX200_FixedLengthOrZero):
     length_expected = 1
 
     def interpret(self):
-        if len(self.get_raw()) == 0:
+        if len(self.raw_response) == 0:
             raise G2ResponseInterpretationFailure()  # invalid
-        if self.get_raw() != '1':
+        if self.raw_response != '1':
             raise G2ResponseInterpretationFailure()  # ???
 
 
@@ -995,9 +993,9 @@ class G2Rsp_SetSiteLatitude(Gemini2Response_LX200_FixedLengthOrZero):
     length_expected = 1
 
     def interpret(self):
-        if len(self.get_raw()) == 0:
+        if len(self.raw_response) == 0:
             raise G2ResponseInterpretationFailure()  # invalid
-        if self.get_raw() != '1':
+        if self.raw_response != '1':
             raise G2ResponseInterpretationFailure()  # ???
 
 
@@ -1036,7 +1034,7 @@ class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
     length_expected = 1
 
     def interpret(self) -> None:
-        self._site = parse_int_bounds(self.get_raw(), 0, 4)
+        self._site = parse_int_bounds(self.raw_response, 0, 4)
 
     def get(self) -> int:
         return self._site
@@ -1079,7 +1077,7 @@ class G2Cmd_PECBootPlayback_Set(Gemini2Command_Native_Set):
 
 class G2Rsp_PECBootPlayback_Get(Gemini2Response_Native):
     def interpret(self):
-        self._enabled = parse_int_bounds(self.get_raw(), 0, 1)
+        self._enabled = parse_int_bounds(self.raw_response, 0, 1)
 
     def get(self) -> bool:
         return self._enabled != 0
@@ -1105,7 +1103,7 @@ class G2Cmd_PECStatus_Set(Gemini2Command_Native_Set):
 class G2Rsp_PECStatus_Get(Gemini2Response_Native):
     def interpret(self):
         # Raises ValueError if the response field value isn't in the enum.
-        self._status = G2PECStatus(int(self.get_raw()))
+        self._status = G2PECStatus(int(self.raw_response))
 
     def get(self):
         return self._status
@@ -1138,7 +1136,7 @@ class G2Cmd_NTPServerAddr_Set(Gemini2Command_Native_Set):
 
 class G2Rsp_NTPServerAddr_Get(Gemini2Response_Native):
     def interpret(self):
-        self._addr = parse_ip4vaddr(self.get_raw())
+        self._addr = parse_ip4vaddr(self.raw_response)
 
     def get(self) -> ipaddress.IPv4Address:
         return self._addr
