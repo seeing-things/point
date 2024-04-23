@@ -1,13 +1,12 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import re
 import ipaddress
 from curses.ascii import isgraph
 import enum
 from enum import Enum, Flag
 from collections.abc import Iterable
-from typing import Any
 from point.gemini_exceptions import (
     G2ResponseException,
     G2ResponseIntegerParseError,
@@ -236,18 +235,44 @@ class Backend(enum.Flag):
 
 
 class Gemini2Command(ABC):
-    """
+    """Abstract base class for Gemini 2 commands.
+
+    Instances of child classes are passed to `Gemini2Backend.execute_one_command()` to
+    execute commands. Most of the methods of this class are meant to be called by the
+    backend. Command parameters are generally passed to child class constructors and
+    response information can be retrieved by accessing the `raw_response` attribute or
+    by other attributes and methods specific to individual commands.
+
     Attributes:
-        response: Response from the command. Individual commands may set this to
-            subclasses of Gemini2Response. None means no response is expected.
         supported_backends: Indicates which backends this command supports. Most
             commands support both backends but the ENQ macro command is only supported
             via UDP.
+        response_expected: True if a response to this command is expected.
+        response_type: Type of response expected (fixed length, hash-terminated, etc.)
+            which determines how the response is interpreted.
+        response_decoded: True after `decode()` has been called for commands expecting
+            a response, False otherwise.
+        response_length_expected: Expected length of response string for fixed-length
+            response type.
+        zero_len_hack: Whether to process possibly-zero-length responses. This may only
+            be True if the `type` is FIXED_LENGTH.
+        raw_response: The raw response string from Gemini. This attribute won't exist
+            until `decode()` has been called.
     """
 
+    class ResponseType(enum.Enum):
+        FIXED_LENGTH = enum.auto()
+        HASH_TERMINATED = enum.auto()
+        SEMICOLON_DELIMITED = enum.auto()
+
     # Individual commands may override these default values.
-    response: Gemini2Response | None = None
     supported_backends: Backend = Backend.SERIAL | Backend.UDP
+    response_expected: bool = False
+    response_type: ResponseType = ResponseType.HASH_TERMINATED
+    response_decoded: bool = False
+    response_length_expected: int = 0
+    zero_len_hack: bool = False
+    raw_response: str
 
     @abstractmethod
     def encode(self) -> str:
@@ -286,11 +311,65 @@ class Gemini2Command(ABC):
                         f"contains '\\x{ord(char):02X}'."
                     )
 
+    def decode(self, chars: str) -> int:
+        """Decode the command response.
+
+        Args:
+            chars: String containing this response, and potentially additional responses
+                to other commands.
+
+        Returns:
+            Integer representing how many characters from the input were decoded for
+            this response.
+        """
+        assert self.response_expected
+        assert not self.response_decoded
+        self.response_decoded = True
+
+        if self.response_type == self.ResponseType.FIXED_LENGTH:
+            idx = self.response_length_expected
+            if len(chars) < idx:
+                raise G2ResponseTooShortError(len(chars), idx)
+            resp_data = chars[:idx]
+            num_chars_processed = idx
+        elif self.response_type == self.ResponseType.HASH_TERMINATED:
+            idx = chars.find('#')
+            if idx == -1:
+                raise G2ResponseMissingTerminatorError(len(chars))
+            resp_data = chars[:idx]
+            num_chars_processed = idx + 1
+        elif self.response_type == self.ResponseType.SEMICOLON_DELIMITED:
+            # Individual commands are responsible for parsing fields out of the raw
+            # response string. This is because presently there is only one command, the
+            # ENQ macro command, that uses a semicolon-delimited response, and the
+            # response to that command has one field that can also contain semicolons.
+            # Command-specific parsing can handle that situation.
+            resp_data = chars
+            num_chars_processed = len(chars)
+        else:
+            raise G2ResponseException(
+                f'Unsupported response type {self.response_type}.'
+            )
+
+        self.raw_response = self.post_decode(resp_data)
+        self.interpret()
+        return num_chars_processed
+
+    def post_decode(self, chars: str) -> str:
+        """Optionally implement to do some additional post-decode-step verification."""
+        return chars
+
+    def interpret(self) -> None:
+        """Optionally implement to do cmd-specific interpretation of the response."""
+        return None
+
 
 # ======================================================================================
 
 
 class Gemini2Command_Macro(Gemini2Command):
+    response_type = Gemini2Command.ResponseType.SEMICOLON_DELIMITED
+
     def encode(self) -> str:
         return self.cmd_str()
 
@@ -309,6 +388,7 @@ class Gemini2Command_LX200(Gemini2Command):
             specific subclasses and may contain encoded parameters.
     """
 
+    response_type = Gemini2Command.ResponseType.HASH_TERMINATED
     lx200_cmd: str
 
     def encode(self) -> str:
@@ -335,6 +415,7 @@ class Gemini2Command_Native(Gemini2Command):
         native_params: Set of parameters to be sent along with the command.
     """
 
+    response_type = Gemini2Command.ResponseType.HASH_TERMINATED
     native_prefix: str
     native_id: int
     native_params: tuple[str, ...] = ()
@@ -353,126 +434,6 @@ class Gemini2Command_Native(Gemini2Command):
         # TODO: do a more rigorous valid-character-range check here
         self._check_bad_chars(param_str, ['<', '>', ':', '#', '\x00', '\x06'])
 
-
-class Gemini2Command_Native_Get(Gemini2Command_Native):
-    native_prefix = '<'
-
-
-class Gemini2Command_Native_Set(Gemini2Command_Native):
-    native_prefix = '>'
-
-
-########################################################################################
-
-
-class Gemini2Response(ABC):
-    """Decodes, processes, and stores the response from a Gemini command.
-
-    Attributes:
-        type: Type of response. This determines how the response is interpreted and
-            informs the backend how to determine when it has received the full response.
-        decoded: True after `decode()` has been called, False until then.
-        zero_len_hack: Whether to process possibly-zero-length responses. This may only
-            be True if the `type` is FIXED_LENGTH.
-        length_expected: The expected number of characters in the response. Only
-            relevant when the `type` is FIXED_LENGTH.
-        raw_response: The raw response string from Gemini. This attribute won't exist
-            until the backend calls `decode()` with the response string.
-    """
-
-    class ResponseType(enum.Enum):
-        FIXED_LENGTH = enum.auto()
-        HASH_TERMINATED = enum.auto()
-        SEMICOLON_DELIMITED = enum.auto()
-
-    type: ResponseType = ResponseType.HASH_TERMINATED
-    decoded: bool = False
-    zero_len_hack: bool = False
-    length_expected: int = 0
-    raw_response: str
-
-    def decode(self, chars: str) -> int:
-        """Decode a command response.
-
-        Args:
-            chars: String containing this response, and potentially additional responses
-                to other commands.
-
-        Returns:
-            Integer representing how many characters from the input were decoded for
-            this response.
-        """
-        assert not self.decoded
-        self.decoded = True
-
-        if self.type == self.ResponseType.FIXED_LENGTH:
-            idx = self.length_expected
-            if len(chars) < idx:
-                raise G2ResponseTooShortError(len(chars), idx)
-            resp_data = chars[:idx]
-            num_chars_processed = idx
-        elif self.type == self.ResponseType.HASH_TERMINATED:
-            idx = chars.find('#')
-            if idx == -1:
-                raise G2ResponseMissingTerminatorError(len(chars))
-            resp_data = chars[:idx]
-            num_chars_processed = idx + 1
-        elif self.type == self.ResponseType.SEMICOLON_DELIMITED:
-            # Individual commands are responsible for parsing fields out of the raw
-            # response string. This is because presently there is only one command, the
-            # ENQ macro command, that uses a semicolon-delimited response, and the
-            # response to that command has one field that can also contain semicolons.
-            # Command-specific parsing can handle that situation.
-            resp_data = chars
-            num_chars_processed = len(chars)
-        else:
-            raise G2ResponseException(f'Unsupported response type {self.type}.')
-
-        self.raw_response = self.post_decode(resp_data)
-        self.interpret()
-        return num_chars_processed
-
-    def post_decode(self, chars: str) -> str:
-        """Optionally implement to do some additional post-decode-step verification."""
-        return chars
-
-    def interpret(self) -> None:
-        """Optionally implement to do cmd-specific interpretation of the response."""
-        return None
-
-
-# ======================================================================================
-
-
-class Gemini2Response_Macro(Gemini2Response):
-    type = Gemini2Response.ResponseType.SEMICOLON_DELIMITED
-
-
-# --------------------------------------------------------------------------------------
-
-
-class Gemini2Response_LX200(Gemini2Response):
-    type = Gemini2Response.ResponseType.HASH_TERMINATED
-
-
-# --------------------------------------------------------------------------------------
-
-
-class Gemini2Response_LX200_FixedLength(Gemini2Response_LX200):
-    type = Gemini2Response.ResponseType.FIXED_LENGTH
-
-
-class Gemini2Response_LX200_FixedLengthOrZero(Gemini2Response_LX200_FixedLength):
-    type = Gemini2Response.ResponseType.FIXED_LENGTH
-    zero_len_hack = True
-
-
-# --------------------------------------------------------------------------------------
-
-
-class Gemini2Response_Native(Gemini2Response):
-    type = Gemini2Response.ResponseType.HASH_TERMINATED
-
     def post_decode(self, chars: str) -> str:
         if len(chars) < 1:
             # TODO: Is this a bug? Why return None instead of empty string?
@@ -483,8 +444,15 @@ class Gemini2Response_Native(Gemini2Response):
             raise G2ResponseChecksumMismatchError(csum_recv, csum_comp)
         return chars[:-1]
 
+    # TODO: implement generic G2-Native response decoding
 
-# TODO: implement generic G2-Native response decoding
+
+class Gemini2Command_Native_Get(Gemini2Command_Native):
+    native_prefix = '<'
+
+
+class Gemini2Command_Native_Set(Gemini2Command_Native):
+    native_prefix = '>'
 
 
 ####################################################################################################
@@ -615,22 +583,18 @@ UINT32_MAX = (1 << 32) - 1
 ### Special Commands
 
 
-class G2Rsp_StartupCheck(Gemini2Response):
-    type = Gemini2Response.ResponseType.HASH_TERMINATED
-    status: G2StartupStatus
-
-    def interpret(self) -> None:
-        self.status = G2StartupStatus(self.raw_response)
-
-
 # This command doesn't follow the conventions of all the other LX200 or native commands.
 # It's a special snowflake. The command is a non-printable, single-byte value.
-@dataclass
 class G2Cmd_StartupCheck(Gemini2Command):
-    response: G2Rsp_StartupCheck = field(default_factory=G2Rsp_StartupCheck, init=False)
+    response_expected = True
+    response_type = Gemini2Command.ResponseType.HASH_TERMINATED
+    status: G2StartupStatus
 
     def encode(self) -> str:
         return '\x06'
+
+    def interpret(self) -> None:
+        self.status = G2StartupStatus(self.raw_response)
 
 
 class G2Cmd_SelectStartupMode(Gemini2Command_LX200):
@@ -692,8 +656,13 @@ class G2MacroFields:
     servo_duty_y: int
 
 
-class G2Rsp_MacroENQ(Gemini2Response_Macro):
+class G2Cmd_MacroENQ(Gemini2Command_Macro):
+    supported_backends = Backend.UDP  # Not supported via serial.
+    response_expected = True
     fields: G2MacroFields
+
+    def cmd_str(self):
+        return '\x05'
 
     def interpret(self) -> None:
         # TODO: implement some range checking on most of the numerical fields here
@@ -766,56 +735,36 @@ class G2Rsp_MacroENQ(Gemini2Response_Macro):
         )
 
 
-@dataclass
-class G2Cmd_MacroENQ(Gemini2Command_Macro):
-    response: G2Rsp_MacroENQ = field(default_factory=G2Rsp_MacroENQ, init=False)
-    supported_backends = Backend.UDP  # Not supported via serial.
-
-    def cmd_str(self):
-        return '\x05'
-
-
 ### Synchronization Commands
 
 
-class G2Rsp_Echo(Gemini2Response_LX200):
-    pass
-
-
 class G2Cmd_Echo(Gemini2Command_LX200):
-    response: G2Rsp_Echo
+    response_expected = True
 
     def __init__(self, char: str):
         if (not isinstance(char, str)) or (len(char) != 1):
             raise G2CommandParameterTypeError('char')
         self.lx200_cmd = f'CE{char}'
-        self.response = G2Rsp_Echo()
 
 
-class G2Rsp_AlignToObject(Gemini2Response_LX200):
-    def interpret(self) -> None:
-        if self.raw_response == 'No object!':
-            raise G2ResponseInterpretationFailure()
-
-
-@dataclass
 class G2Cmd_AlignToObject(Gemini2Command_LX200):
-    response: G2Rsp_AlignToObject = field(
-        default_factory=G2Rsp_AlignToObject, init=False
-    )
+    response_expected = True
     lx200_cmd = 'Cm'
 
-
-class G2Rsp_SyncToObject(Gemini2Response_LX200):
     def interpret(self) -> None:
         if self.raw_response == 'No object!':
+            # TODO: This seems like the wrong response to this situation
             raise G2ResponseInterpretationFailure()
 
 
-@dataclass
 class G2Cmd_SyncToObject(Gemini2Command_LX200):
-    response: G2Rsp_SyncToObject = field(default_factory=G2Rsp_SyncToObject, init=False)
+    response_expected = True
     lx200_cmd = 'CM'
+
+    def interpret(self) -> None:
+        if self.raw_response == 'No object!':
+            # TODO: This seems like the wrong response to this situation
+            raise G2ResponseInterpretationFailure()
 
 
 # ...
@@ -869,18 +818,15 @@ class G2Cmd_SetObjectName(Gemini2Command_LX200):
 ### Precision Commands
 
 
-class G2Rsp_GetPrecision(Gemini2Response_LX200_FixedLength):
-    length_expected = 14
+class G2Cmd_GetPrecision(Gemini2Command_LX200):
+    response_expected = True
+    response_type = Gemini2Command.ResponseType.FIXED_LENGTH
+    response_length_expected = 14
+    lx200_cmd = 'P'
     precision: G2Precision
 
     def interpret(self) -> None:
         self.precision = G2Precision(self.raw_response)
-
-
-@dataclass
-class G2Cmd_GetPrecision(Gemini2Command_LX200):
-    response: G2Rsp_GetPrecision = field(default_factory=G2Rsp_GetPrecision, init=False)
-    lx200_cmd = 'P'
 
 
 class G2Cmd_TogglePrecision(Gemini2Command_LX200):
@@ -902,8 +848,18 @@ class G2Cmd_SetDblPrecision(Gemini2Command_LX200):
 
 
 ### Set Commands
-class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
-    length_expected = 1
+
+
+class G2Cmd_SetObjectRA(Gemini2Command_LX200):
+    response_expected = True
+    response_type = Gemini2Command.ResponseType.FIXED_LENGTH
+    response_length_expected = 1
+
+    def __init__(self, ra: float):
+        if ra < 0.0 or ra >= 360.0:
+            raise G2CommandParameterValueError('ra must be >= 0.0 and < 360.0.')
+        _, hour, min, sec = ang_to_hourminsec(ra)
+        self.lx200_cmd = f'Sr{hour:02d}:{min:02d}:{sec:02d}'
 
     def interpret(self) -> None:
         validity = G2Valid(
@@ -913,19 +869,17 @@ class G2Rsp_SetObjectRA(Gemini2Response_LX200_FixedLength):
             raise G2ResponseInterpretationFailure()
 
 
-class G2Cmd_SetObjectRA(Gemini2Command_LX200):
-    response: G2Rsp_SetObjectRA
+class G2Cmd_SetObjectDec(Gemini2Command_LX200):
+    response_expected = True
+    response_type = Gemini2Command.ResponseType.FIXED_LENGTH
+    response_length_expected = 1
 
-    def __init__(self, ra: float):
-        if ra < 0.0 or ra >= 360.0:
-            raise G2CommandParameterValueError('ra must be >= 0.0 and < 360.0.')
-        _, hour, min, sec = ang_to_hourminsec(ra)
-        self.lx200_cmd = f'Sr{hour:02d}:{min:02d}:{sec:02d}'
-        self.response = G2Rsp_SetObjectRA()
-
-
-class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
-    length_expected = 1
+    def __init__(self, dec: float):
+        if dec < -90.0 or dec > 90.0:
+            raise G2CommandParameterValueError('dec must be >= -90.0 and <= 90.0.')
+        sign, deg, min, sec = ang_to_degminsec(dec)
+        signchar = '+' if sign >= 0 else '-'
+        self.lx200_cmd = f'Sd{signchar}{deg:02d}:{min:02d}:{sec:02d}'
 
     def interpret(self):
         # Raises ValueError if the response field value isn't in the enum.
@@ -935,30 +889,11 @@ class G2Rsp_SetObjectDec(Gemini2Response_LX200_FixedLength):
         # NOTE: only objects which are currently above the horizon are considered valid
 
 
-class G2Cmd_SetObjectDec(Gemini2Command_LX200):
-    response: G2Rsp_SetObjectDec
-
-    def __init__(self, dec: float):
-        if dec < -90.0 or dec > 90.0:
-            raise G2CommandParameterValueError('dec must be >= -90.0 and <= 90.0.')
-        sign, deg, min, sec = ang_to_degminsec(dec)
-        signchar = '+' if sign >= 0 else '-'
-        self.lx200_cmd = f'Sd{signchar}{deg:02d}:{min:02d}:{sec:02d}'
-        self.response = G2Rsp_SetObjectDec()
-
-
-class G2Rsp_SetSiteLongitude(Gemini2Response_LX200_FixedLengthOrZero):
-    length_expected = 1
-
-    def interpret(self):
-        if len(self.raw_response) == 0:
-            raise G2ResponseInterpretationFailure()  # invalid
-        if self.raw_response != '1':
-            raise G2ResponseInterpretationFailure()  # ???
-
-
 class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
-    response: G2Rsp_SetSiteLongitude
+    response_expected = True
+    response_type = Gemini2Command.ResponseType.FIXED_LENGTH
+    response_length_expected = 1
+    zero_len_hack = True
 
     def __init__(self, lon: float):
         if lon <= -360.0 or lon >= 360.0:
@@ -968,11 +903,6 @@ class G2Cmd_SetSiteLongitude(Gemini2Command_LX200):
         # LX200!
         signchar = '-' if sign >= 0 else '+'
         self.lx200_cmd = f'Sg{signchar}{deg:03d}*{min:02d}'
-        self.response = G2Rsp_SetSiteLongitude()
-
-
-class G2Rsp_SetSiteLatitude(Gemini2Response_LX200_FixedLengthOrZero):
-    length_expected = 1
 
     def interpret(self):
         if len(self.raw_response) == 0:
@@ -982,7 +912,10 @@ class G2Rsp_SetSiteLatitude(Gemini2Response_LX200_FixedLengthOrZero):
 
 
 class G2Cmd_SetSiteLatitude(Gemini2Command_LX200):
-    response: G2Rsp_SetSiteLatitude
+    response_expected = True
+    response_type = Gemini2Command.ResponseType.FIXED_LENGTH
+    response_length_expected = 1
+    zero_len_hack = True
 
     def __init__(self, lat: float):
         if lat < -90.0 or lat > 90.0:
@@ -990,7 +923,12 @@ class G2Cmd_SetSiteLatitude(Gemini2Command_LX200):
         sign, deg, min = ang_to_degmin(lat)
         signchar = '+' if sign >= 0.0 else '-'
         self.lx200_cmd = f'St{signchar}{deg:02d}*{min:02d}'
-        self.response = G2Rsp_SetSiteLatitude()
+
+    def interpret(self):
+        if len(self.raw_response) == 0:
+            raise G2ResponseInterpretationFailure()  # invalid
+        if self.raw_response != '1':
+            raise G2ResponseInterpretationFailure()  # ???
 
 
 # ...
@@ -1012,23 +950,18 @@ class G2Cmd_SetStoredSite(Gemini2Command_LX200):
         self.lx200_cmd = f'W{site:d}'
 
 
-class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
-    length_expected = 1
-    site: int
-
-    def interpret(self) -> None:
-        self.site = parse_int_bounds(self.raw_response, 0, 4)
-
-
-@dataclass
 class G2Cmd_GetStoredSite(Gemini2Command_LX200):
     """Note that the official Gemini 2 serial command documentation is wrong: the range
     for sites is 0-4 inclusive, not 0-3 inclusive."""
 
-    response: G2Rsp_GetStoredSite = field(
-        default_factory=G2Rsp_GetStoredSite, init=False
-    )
+    response_expected = True
+    response_type = Gemini2Command.ResponseType.FIXED_LENGTH
+    response_length_expected = 1
     lx200_cmd = 'W?'
+    site: int
+
+    def interpret(self) -> None:
+        self.site = parse_int_bounds(self.raw_response, 0, 4)
 
 
 # ...
@@ -1055,19 +988,13 @@ class G2Cmd_PECBootPlayback_Set(Gemini2Command_Native_Set):
         self.native_params = ('1',) if enable else ('0',)
 
 
-class G2Rsp_PECBootPlayback_Get(Gemini2Response_Native):
+class G2Cmd_PECBootPlayback_Get(Gemini2Command_Native_Get):
+    response_expected = True
+    native_id = 508
     enabled: bool
 
     def interpret(self):
         self.enabled = bool(parse_int_bounds(self.raw_response, 0, 1))
-
-
-@dataclass
-class G2Cmd_PECBootPlayback_Get(Gemini2Command_Native_Get):
-    response: G2Rsp_PECBootPlayback_Get = field(
-        default_factory=G2Rsp_PECBootPlayback_Get, init=False
-    )
-    native_id = 508
 
 
 class G2Cmd_PECStatus_Set(Gemini2Command_Native_Set):
@@ -1079,19 +1006,13 @@ class G2Cmd_PECStatus_Set(Gemini2Command_Native_Set):
         self.native_params = (str(status.value),)
 
 
-class G2Rsp_PECStatus_Get(Gemini2Response_Native):
+class G2Cmd_PECStatus_Get(Gemini2Command_Native_Get):
+    response_expected = True
+    native_id = 509
     status: G2PECStatus
 
     def interpret(self):
         self.status = G2PECStatus(int(self.raw_response))
-
-
-@dataclass
-class G2Cmd_PECStatus_Get(Gemini2Command_Native_Get):
-    response: G2Rsp_PECStatus_Get = field(
-        default_factory=G2Rsp_PECStatus_Get, init=False
-    )
-    native_id = 509
 
 
 class G2Cmd_PECReplayOn_Set(Gemini2Command_Native_Set):
@@ -1111,19 +1032,13 @@ class G2Cmd_NTPServerAddr_Set(Gemini2Command_Native_Set):
         self.native_params = (str(addr),)
 
 
-class G2Rsp_NTPServerAddr_Get(Gemini2Response_Native):
+class G2Cmd_NTPServerAddr_Get(Gemini2Command_Native_Get):
+    response_expected = True
+    native_id = 816
     address: ipaddress.IPv4Address
 
     def interpret(self):
         self.address = parse_ip4vaddr(self.raw_response)
-
-
-@dataclass
-class G2Cmd_NTPServerAddr_Get(Gemini2Command_Native_Get):
-    response: G2Rsp_NTPServerAddr_Get = field(
-        default_factory=G2Rsp_NTPServerAddr_Get, init=False
-    )
-    native_id = 816
 
 
 # ...

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from point.gemini_commands import Backend, Gemini2Command, Gemini2Response
+from point.gemini_commands import Backend, Gemini2Command
 import serial
 import socket
 import struct
@@ -63,8 +63,7 @@ class Gemini2BackendSerial(Gemini2Backend):
         self._serial.write(buf_cmd.encode(self._str_encoding()))
         self._serial.reset_input_buffer()
 
-        resp = cmd.response
-        if resp is None:
+        if not cmd.response_expected:
             return
 
         # Ugh, we have to have special logic to handle cases where there may be no
@@ -73,53 +72,53 @@ class Gemini2BackendSerial(Gemini2Backend):
         # this way, we can actually discern between 0-bytes-returned and haven't-
         # blocked-long-enough.
         # NOTE: we only support the fixed-length decoder for now, to keep things simple
-        if resp.zero_len_hack:
-            assert resp.type == Gemini2Response.ResponseType.FIXED_LENGTH
+        if cmd.zero_len_hack:
+            assert cmd.response_type == Gemini2Command.ResponseType.FIXED_LENGTH
             self._serial.write(b':CE\xff#')
 
-        buf_resp = self._wait_for_response(resp)
+        buf_resp = self._wait_for_response(cmd)
 
-        len_consumed = resp.decode(buf_resp)
+        len_consumed = cmd.decode(buf_resp)
         if len_consumed != len(buf_resp):
             raise G2BackendResponseError(
                 f'Response was decoded, but only {len_consumed} of the {len(buf_resp)} '
                 'available characters were consumed.'
             )
 
-    def _wait_for_response(self, resp: Gemini2Response) -> str:
+    def _wait_for_response(self, cmd: Gemini2Command) -> str:
         # TODO: This seems like rather tight coupling with the Gemini2Response class.
         # There must be a better way!
-        if resp.type == Gemini2Response.ResponseType.FIXED_LENGTH:
-            return self._wait_for_response_fixed_length(resp)
-        elif resp.type == Gemini2Response.ResponseType.HASH_TERMINATED:
-            return self._wait_for_response_hash_terminated(resp)
-        elif resp.type == Gemini2Response.ResponseType.SEMICOLON_DELIMITED:
+        if cmd.response_type == Gemini2Command.ResponseType.FIXED_LENGTH:
+            return self._wait_for_response_fixed_length(cmd)
+        elif cmd.response_type == Gemini2Command.ResponseType.HASH_TERMINATED:
+            return self._wait_for_response_hash_terminated(cmd)
+        elif cmd.response_type == Gemini2Command.ResponseType.SEMICOLON_DELIMITED:
             raise G2BackendFeatureNotSupportedError(
                 'Semicolon delimited responses are not supported in the serial backend.'
             )
         else:
             assert False
 
-    def _wait_for_response_fixed_length(self, response: Gemini2Response) -> str:
-        if response.zero_len_hack:
+    def _wait_for_response_fixed_length(self, command: Gemini2Command) -> str:
+        if command.zero_len_hack:
             buf_resp = self._get_chars(2)
             if buf_resp == '\xff#':
                 return ''  # zero-length response confirmed
-            buf_resp += self._get_chars(response.length_expected)
+            buf_resp += self._get_chars(command.response_length_expected)
             if buf_resp[-2:] != '\xff#':
                 raise G2BackendResponseError(
                     'Did not receive echo sequence for possibly-zero-length response.'
                 )
             buf_resp = buf_resp[:-2]
         else:
-            buf_resp = self._get_chars(response.length_expected)
+            buf_resp = self._get_chars(command.response_length_expected)
         if '#' in buf_resp:
             raise G2BackendResponseError(
                 "Received '#' terminator as part of a fixed-length response."
             )
         return buf_resp
 
-    def _wait_for_response_hash_terminated(self, response: Gemini2Response) -> str:
+    def _wait_for_response_hash_terminated(self, command: Gemini2Command) -> str:
         buf_resp = ''
         while not (len(buf_resp) >= 1 and buf_resp[-1] == '#'):
             buf_resp += self._get_char()
@@ -343,21 +342,19 @@ class Gemini2BackendUDP(Gemini2Backend):
                 )
             buf_resp = buf_resp[:-1]
 
-            resp = cmd.response
             if len(buf_resp) == 1 and buf_resp[0] == '\x06':
-                if resp is not None:
+                if cmd.response_expected:
                     raise G2BackendResponseError(
                         'Received ACK (no response), but command '
-                        f'{cmd.__class__.__name__} expected to receive response '
-                        f'{resp.__class__.__name__}.'
+                        f'{cmd.__class__.__name__} expected to receive response.'
                     )
             else:
-                if resp is None:
+                if not cmd.response_expected:
                     raise G2BackendResponseError(
                         'Received a response of some kind, but command '
                         f'{cmd.__class__.__name__} was expecting no response.'
                     )
-                len_consumed = resp.decode(buf_resp)
+                len_consumed = cmd.decode(buf_resp)
                 if len_consumed != len(buf_resp):
                     raise G2BackendResponseError(
                         f'Response was decoded, but only {len_consumed} of the '
