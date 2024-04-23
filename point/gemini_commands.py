@@ -367,20 +367,6 @@ class Gemini2Command(ABC):
 # ======================================================================================
 
 
-class Gemini2Command_Macro(Gemini2Command):
-    response_type = Gemini2Command.ResponseType.SEMICOLON_DELIMITED
-
-    def encode(self) -> str:
-        return self.cmd_str()
-
-    @abstractmethod
-    def cmd_str(self) -> str:
-        """The character(s) to send for this macro command."""
-
-
-# --------------------------------------------------------------------------------------
-
-
 class Gemini2Command_LX200(Gemini2Command):
     """
     Attributes:
@@ -656,12 +642,13 @@ class G2MacroFields:
     servo_duty_y: int
 
 
-class G2Cmd_MacroENQ(Gemini2Command_Macro):
+class G2Cmd_MacroENQ(Gemini2Command):
     supported_backends = Backend.UDP  # Not supported via serial.
+    response_type = Gemini2Command.ResponseType.SEMICOLON_DELIMITED
     response_expected = True
     fields: G2MacroFields
 
-    def cmd_str(self):
+    def encode(self):
         return '\x05'
 
     def interpret(self) -> None:
