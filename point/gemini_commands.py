@@ -440,10 +440,6 @@ class Gemini2Response(ABC):
         """Optionally implement to do cmd-specific interpretation of the response."""
         return None
 
-    def get(self) -> Any:
-        """Override this to return interpreted data instead of the raw response."""
-        return self.raw_response
-
 
 # ======================================================================================
 
@@ -487,10 +483,6 @@ class Gemini2Response_Native(Gemini2Response):
             raise G2ResponseChecksumMismatchError(csum_recv, csum_comp)
         return chars[:-1]
 
-
-#    def get(self):
-#        # TODO: need to return our post-processed string, not the raw string
-#        pass
 
 # TODO: implement generic G2-Native response decoding
 
@@ -625,14 +617,10 @@ UINT32_MAX = (1 << 32) - 1
 
 class G2Rsp_StartupCheck(Gemini2Response):
     type = Gemini2Response.ResponseType.HASH_TERMINATED
+    status: G2StartupStatus
 
     def interpret(self) -> None:
-        self._status = G2StartupStatus(
-            self.raw_response
-        )  # raises ValueError if the response value isn't in the enum
-
-    def get(self) -> G2StartupStatus:
-        return self._status
+        self.status = G2StartupStatus(self.raw_response)
 
 
 # This command doesn't follow the conventions of all the other LX200 or native commands.
@@ -705,6 +693,7 @@ class G2MacroFields:
 
 
 class G2Rsp_MacroENQ(Gemini2Response_Macro):
+    fields: G2MacroFields
 
     def interpret(self) -> None:
         # TODO: implement some range checking on most of the numerical fields here
@@ -752,7 +741,7 @@ class G2Rsp_MacroENQ(Gemini2Response_Macro):
                 f'Could not parse ENQ response "{self.raw_response}"'
             )
 
-        self._values = G2MacroFields(
+        self.fields = G2MacroFields(
             pra=int(fields[1]),
             pdec=int(fields[2]),
             ra=float(fields[3]),
@@ -775,9 +764,6 @@ class G2Rsp_MacroENQ(Gemini2Response_Macro):
             servo_duty_x=parse_servo_duty(fields[20]),
             servo_duty_y=parse_servo_duty(fields[21]),
         )
-
-    def get(self) -> G2MacroFields:
-        return self._values
 
 
 @dataclass
@@ -885,14 +871,10 @@ class G2Cmd_SetObjectName(Gemini2Command_LX200):
 
 class G2Rsp_GetPrecision(Gemini2Response_LX200_FixedLength):
     length_expected = 14
+    precision: G2Precision
 
     def interpret(self) -> None:
-        self._precision = G2Precision(
-            self.raw_response
-        )  # raises ValueError if the response value isn't in the enum
-
-    def get(self) -> G2Precision:
-        return self._precision
+        self.precision = G2Precision(self.raw_response)
 
 
 @dataclass
@@ -1032,12 +1014,10 @@ class G2Cmd_SetStoredSite(Gemini2Command_LX200):
 
 class G2Rsp_GetStoredSite(Gemini2Response_LX200_FixedLength):
     length_expected = 1
+    site: int
 
     def interpret(self) -> None:
-        self._site = parse_int_bounds(self.raw_response, 0, 4)
-
-    def get(self) -> int:
-        return self._site
+        self.site = parse_int_bounds(self.raw_response, 0, 4)
 
 
 @dataclass
@@ -1076,11 +1056,10 @@ class G2Cmd_PECBootPlayback_Set(Gemini2Command_Native_Set):
 
 
 class G2Rsp_PECBootPlayback_Get(Gemini2Response_Native):
-    def interpret(self):
-        self._enabled = parse_int_bounds(self.raw_response, 0, 1)
+    enabled: bool
 
-    def get(self) -> bool:
-        return self._enabled != 0
+    def interpret(self):
+        self.enabled = bool(parse_int_bounds(self.raw_response, 0, 1))
 
 
 @dataclass
@@ -1101,12 +1080,10 @@ class G2Cmd_PECStatus_Set(Gemini2Command_Native_Set):
 
 
 class G2Rsp_PECStatus_Get(Gemini2Response_Native):
-    def interpret(self):
-        # Raises ValueError if the response field value isn't in the enum.
-        self._status = G2PECStatus(int(self.raw_response))
+    status: G2PECStatus
 
-    def get(self):
-        return self._status
+    def interpret(self):
+        self.status = G2PECStatus(int(self.raw_response))
 
 
 @dataclass
@@ -1135,11 +1112,10 @@ class G2Cmd_NTPServerAddr_Set(Gemini2Command_Native_Set):
 
 
 class G2Rsp_NTPServerAddr_Get(Gemini2Response_Native):
-    def interpret(self):
-        self._addr = parse_ip4vaddr(self.raw_response)
+    address: ipaddress.IPv4Address
 
-    def get(self) -> ipaddress.IPv4Address:
-        return self._addr
+    def interpret(self):
+        self.address = parse_ip4vaddr(self.raw_response)
 
 
 @dataclass
