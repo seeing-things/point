@@ -44,6 +44,7 @@ _re_ipv4addr = re.compile(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$', re.AS
 
 
 def parse_int(string: str) -> int:
+    """Parse an integer from a string."""
     match = _re_int.fullmatch(string)
     if match is None:
         raise G2ResponseIntegerParseError(string)
@@ -51,6 +52,7 @@ def parse_int(string: str) -> int:
 
 
 def parse_int_bounds(string: str, bound_min: int, bound_max: int) -> int:
+    """Parse an integer from a string with bounds check."""
     if bound_min > bound_max:
         raise G2ResponseParseError(f'bound_min {bound_min} > bound_max {bound_max})')
     val = parse_int(string)
@@ -60,6 +62,7 @@ def parse_int_bounds(string: str, bound_min: int, bound_max: int) -> int:
 
 
 def parse_ang_dbl(string: str) -> float:
+    """Parse an angle in double-precision format."""
     match = _re_ang_dbl.fullmatch(string)
     if match is None:
         raise G2ResponseAngleParseError(string, 'double')
@@ -67,6 +70,7 @@ def parse_ang_dbl(string: str) -> float:
 
 
 def parse_ang_high(string: str) -> float:
+    """Parse an angle in high-precision format."""
     match = _re_ang_high.fullmatch(string)
     if match is None:
         raise G2ResponseAngleParseError(string, 'high')
@@ -77,6 +81,7 @@ def parse_ang_high(string: str) -> float:
 
 
 def parse_ang_low(string: str) -> float:
+    """Parse an angle in low-precision format."""
     match = _re_ang_low.fullmatch(string)
     if match is None:
         raise G2ResponseAngleParseError(string, 'low')
@@ -86,8 +91,7 @@ def parse_ang_low(string: str) -> float:
 
 
 def parse_ang(string: str, precision: G2Precision) -> float:
-    if not isinstance(precision, G2Precision):
-        raise G2ResponseParseError('parse_ang: not isinstance(precision, G2Precision)')
+    """Parse an angle having the indicated precision format."""
     if precision == G2Precision.DOUBLE:
         return parse_ang_dbl(string)
     elif precision == G2Precision.HIGH:
@@ -97,6 +101,7 @@ def parse_ang(string: str, precision: G2Precision) -> float:
 
 
 def parse_time_dbl(string: str) -> float:
+    """Parse a time value in double-precision format."""
     match = _re_time_dbl.fullmatch(string)
     if match is None:
         raise G2ResponseTimeParseError(string, 'double')
@@ -104,6 +109,7 @@ def parse_time_dbl(string: str) -> float:
 
 
 def parse_time_hilo(string: str) -> float:
+    """Parse a time value in high or low precision formats."""
     match = _re_time_hilo.fullmatch(string)
     if match is None:
         raise G2ResponseTimeParseError(string, 'high/low')
@@ -118,8 +124,7 @@ def parse_time_hilo(string: str) -> float:
 
 
 def parse_time(string: str, precision: G2Precision) -> float:
-    if not isinstance(precision, G2Precision):
-        raise G2ResponseParseError('parse_time: not isinstance(precision, G2Precision)')
+    """Parse a time having the indicated precision format."""
     if precision == G2Precision.DOUBLE:
         return parse_time_dbl(string)
     else:
@@ -140,6 +145,7 @@ def parse_revisions(string: str) -> G2Revisions:
 
 
 def parse_ip4vaddr(string: str) -> ipaddress.IPv4Address:
+    """Parse IPv4 address."""
     match = _re_ipv4addr.fullmatch(string)
     if match is None:
         raise G2ResponseIPv4AddressParseError(string)
@@ -157,9 +163,9 @@ def parse_ip4vaddr(string: str) -> ipaddress.IPv4Address:
 ########################################################################################
 
 
-# returns tuple: (int:sign[-1|0|+1], int:hour, int:min, int:sec)
 def ang_to_hourminsec(ang: float) -> tuple[int, int, int, int]:
-    """
+    """Split an angle into sign, hours, minutes, and seconds.
+
     Args:
         ang: Angle in degrees.
 
@@ -170,7 +176,8 @@ def ang_to_hourminsec(ang: float) -> tuple[int, int, int, int]:
 
 
 def ang_to_degminsec(ang: float) -> tuple[int, int, int, int]:
-    """
+    """Split an angle into sign, degrees, minutes, and seconds.
+
     Args:
         ang: Angle in degrees.
 
@@ -194,7 +201,8 @@ def ang_to_degminsec(ang: float) -> tuple[int, int, int, int]:
 
 
 def ang_to_degmin(ang: float) -> tuple[int, int, int]:
-    """
+    """Split an angle into sign, degrees, and minutes.
+
     Args:
         ang: Angle in degrees.
 

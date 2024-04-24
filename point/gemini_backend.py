@@ -30,7 +30,7 @@ class Gemini2Backend(ABC):
 
     @abstractmethod
     def execute_one_command(self, cmd: Gemini2Command) -> None:
-        pass
+        """Execute a single command."""
 
     def _str_encoding(self):
         return 'ascii'
@@ -40,7 +40,15 @@ class Gemini2Backend(ABC):
 
 
 class Gemini2BackendSerial(Gemini2Backend):
+    """USB Serial connection backend."""
+
     def __init__(self, timeout: float, devname: str):
+        """
+        Args:
+            timeout: Timeout for serial port in seconds.
+            devname: Serial device name. For example, "/dev/ttyUSB0".
+        """
+
         self._timeout = timeout
         self._devname = devname
 
@@ -53,6 +61,8 @@ class Gemini2BackendSerial(Gemini2Backend):
         self._serial.close()
 
     def execute_one_command(self, cmd: Gemini2Command) -> None:
+        """Execute a single command on the serial backend."""
+
         if Backend.SERIAL not in cmd.supported_backends:
             raise G2BackendCommandNotSupportedError(
                 f'Command {cmd.__class__.__name__} not supported on the serial backend.'
@@ -86,8 +96,6 @@ class Gemini2BackendSerial(Gemini2Backend):
             )
 
     def _wait_for_response(self, cmd: Gemini2Command) -> str:
-        # TODO: This seems like rather tight coupling with the Gemini2Response class.
-        # There must be a better way!
         if cmd.response_type == Gemini2Command.ResponseType.FIXED_LENGTH:
             return self._wait_for_response_fixed_length(cmd)
         elif cmd.response_type == Gemini2Command.ResponseType.HASH_TERMINATED:
@@ -100,6 +108,7 @@ class Gemini2BackendSerial(Gemini2Backend):
             assert False
 
     def _wait_for_response_fixed_length(self, command: Gemini2Command) -> str:
+        """Gets a pre-determined number of characters from the serial port."""
         if command.zero_len_hack:
             buf_resp = self._get_chars(2)
             if buf_resp == '\xff#':
@@ -119,18 +128,21 @@ class Gemini2BackendSerial(Gemini2Backend):
         return buf_resp
 
     def _wait_for_response_hash_terminated(self, command: Gemini2Command) -> str:
+        """Gets characters from the serial port until a # character is found."""
         buf_resp = ''
         while not (len(buf_resp) >= 1 and buf_resp[-1] == '#'):
             buf_resp += self._get_char()
         return buf_resp
 
     def _get_char(self) -> str:
+        """Get a single character from the serial port."""
         char = self._serial.read(1).decode(self._str_encoding())
         if not char:
             raise G2BackendReadTimeoutError()
         return char
 
     def _get_chars(self, count: int) -> str:
+        """Get a specific number of characters from the serial port."""
         chars = self._serial.read(count).decode(self._str_encoding())
         assert len(chars) <= count
         if len(chars) != count:
@@ -139,6 +151,8 @@ class Gemini2BackendSerial(Gemini2Backend):
 
 
 class Gemini2BackendUDP(Gemini2Backend):
+    """UDP/IP connection backend."""
+
     UDP_DEFAULT_LOCAL_ADDR = '0.0.0.0'
     UDP_DEFAULT_LOCAL_PORT = 11110
     UDP_DEFAULT_REMOTE_PORT = 11110
@@ -171,6 +185,16 @@ class Gemini2BackendUDP(Gemini2Backend):
         local_port: int = UDP_DEFAULT_LOCAL_PORT,
         retry_limit: int = DEFAULT_RETRY_LIMIT,
     ):
+        """
+        Args:
+            timeout: Socket timeout in seconds.
+            remote_addr: Gemini IPv4 address.
+            local_addr: Local IPv4 address.
+            remote_port: Gemini port number.
+            local_port: Local port number.
+            retry_limit: Number of retries after a failed command before giving up.
+        """
+
         self._timeout = timeout
 
         self._remote_addr = (remote_addr, remote_port)
@@ -198,6 +222,7 @@ class Gemini2BackendUDP(Gemini2Backend):
         self._sock.close()
 
     def execute_one_command(self, cmd: Gemini2Command) -> None:
+        """Execute a single command on the UDP backend."""
         self._command_lock.acquire()
         try:
             self._execute_one_command(cmd)
