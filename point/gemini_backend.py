@@ -11,7 +11,6 @@ from point.gemini_exceptions import (
     G2BackendResponseError,
     G2BackendReadTimeoutError,
     G2BackendCommandError,
-    G2BackendFeatureNotImplementedYetError,
 )
 
 
@@ -208,12 +207,12 @@ class Gemini2BackendUDP(Gemini2Backend):
         self._sock.settimeout(self._timeout)
         self._sock.bind(self._local_addr)
 
-        self._stats = {}
-        self._stats['cmd_exec'] = 0
-        self._stats['dgram_cmd_tx'] = 0
-        self._stats['dgram_cmd_rx'] = 0
-        self._stats['dgram_nack_tx'] = 0
-        self._stats['dgram_nack_rx'] = 0
+        self.stats = {}
+        self.stats['cmd_exec'] = 0
+        self.stats['dgram_cmd_tx'] = 0
+        self.stats['dgram_cmd_rx'] = 0
+        self.stats['dgram_nack_tx'] = 0
+        self.stats['dgram_nack_rx'] = 0
 
         self._command_lock = multiprocessing.Lock()
 
@@ -264,7 +263,7 @@ class Gemini2BackendUDP(Gemini2Backend):
                 buf_cmd += b'\x00'
 
                 self._sock.sendto(buf_cmd, self._remote_addr)
-                self._stats['dgram_cmd_tx'] += 1
+                self.stats['dgram_cmd_tx'] += 1
 
             skip_send = False
 
@@ -286,17 +285,17 @@ class Gemini2BackendUDP(Gemini2Backend):
                     self._seqnum += 1
                     buf_nack = struct.pack('!IIc', self._seqnum, 0, b'\x15')
                     self._sock.sendto(buf_nack, self._remote_addr)
-                    self._stats['dgram_nack_tx'] += 1
+                    self.stats['dgram_nack_tx'] += 1
                     try:
                         buf_resp = self._sock.recv(self.UDP_RECV_BUF_SIZE)
                     except socket.timeout:
                         pass
                     else:
-                        self._stats['dgram_nack_rx'] += 1
+                        self.stats['dgram_nack_rx'] += 1
                         did_retry = True
                         break
             else:
-                self._stats['dgram_cmd_rx'] += 1
+                self.stats['dgram_cmd_rx'] += 1
 
             if len(buf_resp) > self.UDP_RESP_DGRAM_LEN_MAX:
                 raise G2BackendResponseError(
@@ -386,13 +385,5 @@ class Gemini2BackendUDP(Gemini2Backend):
                         f'{len(buf_resp)} available characters were consumed.'
                     )
 
-            self._stats['cmd_exec'] += 1
+            self.stats['cmd_exec'] += 1
             return
-
-    def _synchronously_send_and_recv(self, chars: str):
-        # TODO: use this as the underlying function for the bulk of the common datagram
-        # handling stuff in execute_one_command.
-        raise G2BackendFeatureNotImplementedYetError('TODO')
-
-    def get_statistic(self, key: str) -> int:
-        return self._stats[key]
