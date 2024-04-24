@@ -8,6 +8,7 @@ import enum
 from enum import Enum, Flag
 from collections.abc import Iterable
 from point.gemini_exceptions import (
+    G2ResponseDecodeError,
     G2ResponseException,
     G2ResponseIntegerParseError,
     G2ResponseParseError,
@@ -421,13 +422,13 @@ class Gemini2Command_Native(Gemini2Command):
         self._check_bad_chars(param_str, ['<', '>', ':', '#', '\x00', '\x06'])
 
     def post_decode(self, chars: str) -> str:
-        if len(chars) < 1:
-            # TODO: Is this a bug? Why return None instead of empty string?
-            return
-        csum_recv = ord(chars[-1])
-        csum_comp = compute_native_checksum(chars[:-1])
-        if csum_recv != csum_comp:
-            raise G2ResponseChecksumMismatchError(csum_recv, csum_comp)
+        """Verify and strip native response checksum."""
+        if len(chars) < 2:
+            raise G2ResponseDecodeError('Native command response too short.')
+        checksum_received = ord(chars[-1])
+        checksum_computed = compute_native_checksum(chars[:-1])
+        if checksum_received != checksum_computed:
+            raise G2ResponseChecksumMismatchError(checksum_received, checksum_computed)
         return chars[:-1]
 
     # TODO: implement generic G2-Native response decoding
@@ -585,9 +586,7 @@ class G2Cmd_StartupCheck(Gemini2Command):
 
 class G2Cmd_SelectStartupMode(Gemini2Command_LX200):
     def __init__(self, mode: G2StartupMode):
-        if not isinstance(mode, G2StartupMode):
-            raise G2CommandParameterTypeError('G2StartupMode')
-        self.lx200_cmd = f'b{G2StartupMode[mode]:s}'
+        self.lx200_cmd = f'b{mode.value}'
 
 
 ### Macro Commands
