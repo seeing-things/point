@@ -379,12 +379,8 @@ class Gemini2Command_LX200(Gemini2Command):
     lx200_cmd: str
 
     def encode(self) -> str:
-        self._check_validity(self.lx200_cmd)
+        self._check_bad_chars(self.lx200_cmd, ['#', '\x00', '\x06'])
         return f':{self.lx200_cmd}#'
-
-    def _check_validity(self, cmd_str: str) -> None:
-        # TODO: do a more rigorous valid-character-range check here
-        self._check_bad_chars(cmd_str, ['#', '\x00', '\x06'])
 
 
 # --------------------------------------------------------------------------------------
@@ -414,12 +410,14 @@ class Gemini2Command_Native(Gemini2Command):
 
     def _make_params_str(self, params: tuple[str, ...]) -> str:
         for param in params:
-            self._check_validity(param)
+            self._check_bad_chars(param, ['<', '>', ':', '#', '\x00', '\x06'])
+        # The serial command reference says parameters are separated from each other and
+        # from the ID by hyphens, but this probably is not correct because the example
+        # commands show a colon between the ID and the parameter. See bottom of
+        # https://gemini-2.com/web/L6V02serial.html. In practice it may not matter
+        # because few commands take multiple parameters and those that do seem to each
+        # use their own unique format.
         return ':'.join(params)
-
-    def _check_validity(self, param_str: str) -> None:
-        # TODO: do a more rigorous valid-character-range check here
-        self._check_bad_chars(param_str, ['<', '>', ':', '#', '\x00', '\x06'])
 
     def post_decode(self, chars: str) -> str:
         """Verify and strip native response checksum."""
