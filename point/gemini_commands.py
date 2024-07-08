@@ -459,6 +459,21 @@ class Gemini2Command_Native_Set(Gemini2Command_Native):
 
 ### Enumerations, Constants, etc
 
+@dataclass(frozen=True)
+class G2BoolPerAxis:
+    RA: bool
+    DEC: bool
+
+@dataclass(frozen=True)
+class G2IntPerAxis:
+    RA: int
+    DEC: int
+
+@dataclass(frozen=True)
+class G2FloatPerAxis:
+    RA: float
+    DEC: float
+
 
 class G2Precision(Enum):
     """Parameter for GetPrecision."""
@@ -539,6 +554,12 @@ class G2Status(Flag):
     GOTO_OPERATION_ONGOING = 1 << 3
     RA_LIMIT_REACHED = 1 << 4
     ASSUMING_J2000_OBJ_COORDS = 1 << 5
+
+
+class G2AxisSelect(Flag):
+    # Values are specific to native commands 401, 402, and 403.
+    RA = 1 << 0
+    DEC = 1 << 1
 
 
 # Parameter for MacroENQ fields 'servo_duty_x' and 'servo_duty_y'.
@@ -971,6 +992,50 @@ class G2Cmd_GetStoredSite(Gemini2Command_LX200):
 #    def response(self):      return None # TODO!
 
 
+class G2Cmd_TicksPerHalfCircle_Get(Gemini2Command_Native_Get):
+    response_expected = True
+    native_id = 238
+    ticks_per_half_circle: G2IntPerAxis
+
+    def interpret(self):
+        match = re.match(r'(\d+);(\d+)', self.raw_response)
+        if match is None:
+            raise G2ResponseInterpretationFailure(
+                f'Could not parse {self.raw_response}'
+            )
+        self.ticks_per_half_circle = G2IntPerAxis(int(match[1]), int(match[2]))
+
+
+class G2Cmd_PhysicalAxisPositions_Get(Gemini2Command_Native_Get):
+    response_expected = True
+    native_id = 239
+    positions: G2IntPerAxis
+
+    def interpret(self):
+        match = re.match(r'(\d+);(\d+)', self.raw_response)
+        if match is None:
+            raise G2ResponseInterpretationFailure(
+                f'Could not parse {self.raw_response}'
+            )
+        self.positions = G2IntPerAxis(int(match[1]), int(match[2]))
+
+
+class G2Cmd_ServoQuadratureMode_Set(Gemini2Command_Native_Set):
+    native_id = 401
+
+    def __init__(self, enable: G2AxisSelect):
+        self.native_params = (str(enable.value),)
+
+
+class G2Cmd_ServoQuadratureMode_Get(Gemini2Command_Native_Get):
+    response_expected = True
+    native_id = 401
+    enabled: G2AxisSelect
+
+    def interpret(self):
+        self.enabled = G2AxisSelect(parse_int(self.raw_response))
+
+
 class G2Cmd_PECBootPlayback_Set(Gemini2Command_Native_Set):
     native_id = 508
 
@@ -1043,11 +1108,8 @@ class G2CmdBase_Divisor_Set(Gemini2Command_Native_Set):
     def __init__(self, div: int):
         if not isinstance(div, int):
             raise G2CommandParameterTypeError('int')
-        # clamp divisor into the allowable range
-        if div < SINT32_MIN:
-            div = SINT32_MIN
-        if div > SINT32_MAX:
-            div = SINT32_MAX
+        if not SINT32_MIN <= div <= SINT32_MAX:
+            raise G2CommandParameterValueError(f'{div=} is not a 32-bit integer.')
         self.native_params = (str(div),)
 
 

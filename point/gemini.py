@@ -13,6 +13,11 @@ import signal
 from typing import TypeVar
 from point.gemini_backend import Gemini2Backend
 from point.gemini_commands import (
+    G2AxisSelect,
+    G2Cmd_ServoQuadratureMode_Get,
+    G2Cmd_ServoQuadratureMode_Set,
+    G2IntPerAxis,
+    G2FloatPerAxis,
     G2Cmd_AlignToObject,
     G2Cmd_DEC_Divisor_Set,
     G2Cmd_DEC_StartStop_Set,
@@ -28,6 +33,7 @@ from point.gemini_commands import (
     G2Cmd_PECReplayOn_Set,
     G2Cmd_PECStatus_Get,
     G2Cmd_PECStatus_Set,
+    G2Cmd_PhysicalAxisPositions_Get,
     G2Cmd_RA_Divisor_Set,
     G2Cmd_RA_StartStop_Set,
     G2Cmd_SelectStartupMode,
@@ -40,6 +46,7 @@ from point.gemini_commands import (
     G2Cmd_SetStoredSite,
     G2Cmd_StartupCheck,
     G2Cmd_SyncToObject,
+    G2Cmd_TicksPerHalfCircle_Get,
     G2Cmd_TogglePrecision,
     G2MacroFields,
     G2PECStatus,
@@ -48,11 +55,23 @@ from point.gemini_commands import (
     G2StartupStatus,
     G2Stopped,
     Gemini2Command,
+    SINT32_MIN,
+    SINT32_MAX,
 )
 from point.gemini_exceptions import Gemini2Exception
 
 
 Gemini2CommandGeneric = TypeVar("Gemini2CommandGeneric", bound=Gemini2Command)
+
+
+# Frequency of the timer used to control the rate of "pulses" sent from the ARM
+# processor to the per-axis PIC motor controllers. Each pulse advances the motor
+# controller's target position forward or backward by a fixed small number of encoder
+# ticks (1 tick in 1x encoder resolution mode or 4 ticks in 4x resolution mode). To
+# achieve a particular slew rate, the timer only sends a pulse once every "divisor"
+# timer periods. Thus the pulse frequency is 12 MHz divided by the divisor value.
+ARM_PULSE_TIMER_FREQ_HZ = 12e6
+
 
 # TODO: Handle UDP response timeouts appropriately
 # TODO: Restore "good" documentation to the classes and functions and stuff
@@ -138,6 +157,39 @@ class Gemini2:
         self._accel_limit = accel_limit
         self._use_multiprocessing = use_multiprocessing
         self.set_double_precision()
+
+        # Degrees of axis rotation per encoder tick for use in conversions between ticks
+        # and degrees. This assumes that the encoder resolution and gear ratios won't
+        # change after construction, which is an okay but not perfect assumption. For
+        # example, if the 4x encoder resolution mode added in Level 6 is changed after
+        # this point then this value will be stale. Also assumes that the encoder
+        # resolution and gear ratios are the same on both axes.
+        ticks_per_half_circle = self.get_ticks_per_half_circle()
+        if ticks_per_half_circle.RA != ticks_per_half_circle.DEC:
+            # This should be uncommon
+            raise Gemini2Exception(
+                f'Unsupported configuration: Different number of encoder ticks per '
+                f'half circle on RA ({ticks_per_half_circle.RA}) versus DEC '
+                f'({ticks_per_half_circle.DEC})'
+            )
+        self.encoder_tick_deg = 180.0 / ticks_per_half_circle.RA
+
+        # Degrees of axis rotation per ARM pulse sent to the motor controller. Each
+        # "pulse" from the ARM processor advances the motor controller's target position
+        # by a fixed amount. Prior to Level 6 firmware, that amount was always equal to
+        # the encoder resolution. In Level 6, the pulse always advances the position by
+        # the encoder step size in 1x resolution mode, even when 4x "quadrature" mode is
+        # enabled.
+        quad_mode = self.get_servo_quadrature_mode()
+        if (G2AxisSelect.RA in quad_mode) != (G2AxisSelect.DEC in quad_mode):
+            raise Gemini2Exception(
+                f'Unsupported configuration: Quadrature servo mode is not the same on '
+                f'both mount axes. Enabled only on {quad_mode.name} axis.'
+            )
+        if quad_mode == G2AxisSelect.RA | G2AxisSelect.DEC:
+            self.arm_pulse_deg = 4 * self.encoder_tick_deg
+        else:
+            self.arm_pulse_deg = self.encoder_tick_deg
 
         if use_multiprocessing:
             self._slew_rate_processes = {}
@@ -525,6 +577,24 @@ class Gemini2:
         return self.exec_cmd(G2Cmd_GetStoredSite()).site
 
     ### Native Commands
+
+    def get_ticks_per_half_circle(self) -> G2IntPerAxis:
+        """Encoder ticks per half circle of axis rotation for RA and Dec."""
+        return self.exec_cmd(G2Cmd_TicksPerHalfCircle_Get()).ticks_per_half_circle
+
+    def get_physical_axis_positions(self) -> G2FloatPerAxis:
+        """Get the physical axis positions in degrees."""
+        cmd = self.exec_cmd(G2Cmd_PhysicalAxisPositions_Get())
+        return G2FloatPerAxis(
+            self.encoder_tick_deg * cmd.positions.RA,
+            self.encoder_tick_deg * cmd.positions.DEC,
+        )
+
+    def set_servo_quadrature_mode(self, enable: G2AxisSelect) -> None:
+        self.exec_cmd(G2Cmd_ServoQuadratureMode_Set(enable))
+
+    def get_servo_quadrature_mode(self) -> G2AxisSelect:
+        return self.exec_cmd(G2Cmd_ServoQuadratureMode_Get()).enabled
 
     def set_pec_boot_playback(self, enable: bool) -> None:
         self.exec_cmd(G2Cmd_PECBootPlayback_Set(enable))
@@ -940,9 +1010,15 @@ class Gemini2:
             Divisor setting that is as close to the desired slew rate as possible.
         """
         if rate == 0.0:
+            # Special case and avoids division by zero.
             return 0
-        # TODO: Replace hard-coded constants with values read from Gemini in constructor
-        return int(12e6 / (6400.0 * rate))
+
+        div = round(ARM_PULSE_TIMER_FREQ_HZ * self.arm_pulse_deg / rate)
+        if div < SINT32_MIN:
+            div = SINT32_MIN
+        elif div > SINT32_MAX:
+            div = SINT32_MAX
+        return div
 
     def div_to_slew_rate(self, div: int) -> float:
         """Convert a divisor setting to corresponding slew rate.
@@ -955,8 +1031,7 @@ class Gemini2:
         """
         if div == 0:
             return 0.0
-        # TODO: Replace hard-coded constants with values read from Gemini in constructor
-        return 12e6 / (6400.0 * div)
+        return ARM_PULSE_TIMER_FREQ_HZ * self.arm_pulse_deg / div
 
     def stop_motion(self) -> None:
         """Stops motion on both axes.
